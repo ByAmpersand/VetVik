@@ -3,7 +3,7 @@
  * (Swashbuckle JSON could power code-generation later).
  */
 
-export type Role = "Admin" | "Doctor" | "Owner";
+export type Role = "Admin" | "Doctor" | "Owner" | "SuperAdmin";
 
 export type AppointmentStatus =
   | "Scheduled"
@@ -65,8 +65,29 @@ export interface ClinicWorkingHourResponse {
   isWorkingDay: boolean;
 }
 
+export interface UpdateClinicSettingsRequest {
+  name: string;
+  address: string;
+  phoneNumber: string;
+  email: string;
+  description?: string | null;
+}
+
+export interface UpsertClinicWorkingHourRequest {
+  dayOfWeek: number;
+  openTime: string;
+  closeTime: string;
+  isWorkingDay: boolean;
+}
+
 export interface RoomResponse {
   id: string;
+  name: string;
+  description?: string | null;
+  isActive: boolean;
+}
+
+export interface UpsertRoomRequest {
   name: string;
   description?: string | null;
   isActive: boolean;
@@ -80,10 +101,22 @@ export interface AnimalSpeciesResponse {
   isActive: boolean;
 }
 
+export interface UpsertAnimalSpeciesRequest {
+  name: string;
+  description?: string | null;
+  isActive: boolean;
+}
+
 export interface BreedResponse {
   id: string;
   speciesId: string;
   speciesName: string;
+  name: string;
+  isActive: boolean;
+}
+
+export interface UpsertBreedRequest {
+  speciesId: string;
   name: string;
   isActive: boolean;
 }
@@ -114,6 +147,12 @@ export interface SpecializationResponse {
   isActive: boolean;
 }
 
+export interface UpsertSpecializationRequest {
+  name: string;
+  description?: string | null;
+  isActive: boolean;
+}
+
 export interface DoctorResponse {
   id: string;
   userId: string;
@@ -135,9 +174,41 @@ export interface DoctorWorkingHourResponse {
   isActive: boolean;
 }
 
+export interface CreateDoctorRequest {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  bio?: string | null;
+  photoUrl?: string | null;
+  isActive: boolean;
+  specializationIds?: string[] | null;
+}
+
+export interface UpdateDoctorRequest {
+  firstName: string;
+  lastName: string;
+  bio?: string | null;
+  photoUrl?: string | null;
+  isActive: boolean;
+}
+
+export interface UpsertDoctorWorkingHourRequest {
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  isActive: boolean;
+}
+
 // --- Services ---
 export interface ServiceCategoryResponse {
   id: string;
+  name: string;
+  description?: string | null;
+  isActive: boolean;
+}
+
+export interface UpsertServiceCategoryRequest {
   name: string;
   description?: string | null;
   isActive: boolean;
@@ -147,6 +218,15 @@ export interface ServiceResponse {
   id: string;
   categoryId: string;
   categoryName: string;
+  name: string;
+  description?: string | null;
+  durationMinutes: number;
+  price: number;
+  isActive: boolean;
+}
+
+export interface UpsertServiceRequest {
+  categoryId: string;
   name: string;
   description?: string | null;
   durationMinutes: number;
@@ -183,7 +263,8 @@ export interface AppointmentResponse {
 export interface CreateAppointmentRequest {
   petId: string;
   doctorId: string;
-  roomId: string;
+  /** Assigned by the clinic when omitted during owner self-booking. */
+  roomId?: string | null;
   serviceId: string;
   startAt: string;
   endAt?: string | null;
@@ -192,7 +273,132 @@ export interface CreateAppointmentRequest {
   ownerId?: string | null;
 }
 
-// --- Medical records ---
+export interface UpdateAppointmentRequest {
+  petId: string;
+  doctorId: string;
+  roomId: string;
+  serviceId: string;
+  startAt: string;
+  endAt?: string | null;
+  reason?: string | null;
+  notes?: string | null;
+}
+
+export interface UpsertPetRequest {
+  ownerId?: string;
+  speciesId: string;
+  breedId?: string | null;
+  name: string;
+  sex: PetSex;
+  birthDate?: string | null;
+  weight?: number | null;
+  photoUrl?: string | null;
+  notes?: string | null;
+}
+
+export interface UpdateMedicalRecordRequest {
+  symptoms?: string | null;
+  diagnosis?: string | null;
+  treatment?: string | null;
+  recommendations?: string | null;
+}
+
+export interface CreateMedicalRecordRequest {
+  appointmentId: string;
+  symptoms?: string | null;
+  diagnosis?: string | null;
+  treatment?: string | null;
+  recommendations?: string | null;
+}
+
+export interface StaffMemberResponse {
+  userId: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: Role;
+  isActive: boolean;
+  isProtected: boolean;
+}
+
+export interface CreateAdminRequest {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+}
+
+export interface CreateDoctorStaffRequest {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  bio?: string | null;
+  specializationIds?: string[] | null;
+}
+
+export interface ClientDirectoryResponse {
+  ownerId: string;
+  userId: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone?: string | null;
+  petsCount: number;
+  lastAppointmentAt?: string | null;
+}
+
+export interface AdminInsightsResponse {
+  monthlyVisits: number;
+  completedVisits: number;
+  cancelledVisits: number;
+  activeDoctors: number;
+  monthlyTrend: MonthlyTrendPoint[];
+  weeklyWorkload: WeeklyWorkloadPoint[];
+  serviceDistribution: ServiceDistributionPoint[];
+  speciesDistribution: SpeciesDistributionPoint[];
+}
+
+export interface MonthlyTrendPoint {
+  month: string;
+  appointments: number;
+  completed: number;
+}
+
+export interface WeeklyWorkloadPoint {
+  day: string;
+  appointments: number;
+}
+
+export interface ServiceDistributionPoint {
+  name: string;
+  value: number;
+}
+
+export interface SpeciesDistributionPoint {
+  name: string;
+  value: number;
+}
+
+export interface VaccinationResponse {
+  id: string;
+  petId: string;
+  petName: string;
+  vaccineName: string;
+  administeredDate: string;
+  nextDueDate: string;
+  status: string;
+  administeredByDoctorName?: string | null;
+}
+
+export interface UpsertVaccinationRequest {
+  petId: string;
+  vaccineName: string;
+  administeredDate: string;
+  nextDueDate: string;
+  administeredByDoctorId?: string | null;
+}
+
 export interface MedicalRecordResponse {
   id: string;
   appointmentId: string;

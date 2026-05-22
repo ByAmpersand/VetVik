@@ -8,18 +8,20 @@ import {
   EyeOff,
   HeartPulse,
   PawPrint,
-  ShieldCheck,
   Sparkles,
-  Stethoscope,
   Users,
 } from 'lucide-react';
-import { PrimaryButton, Surface, cn } from '../../components/redesign/VetVikUI';
-
-const roles = [
-  { label: 'Owners', path: '/owner', icon: PawPrint, text: 'Pets, appointments, reminders, medical history.' },
-  { label: 'Doctors', path: '/doctor', icon: Stethoscope, text: 'Schedule, patient context, notes, follow-ups.' },
-  { label: 'Admins', path: '/admin', icon: ShieldCheck, text: 'Clinic flow, calendars, staff, insights.' },
-];
+import { useAuth } from '../../auth/AuthContext';
+import { roleHomePath } from '../../auth/roles';
+import { PrimaryButton, Surface } from '../../components/redesign/VetVikUI';
+import {
+  formatApiError,
+  mapApiErrorsToFields,
+  validateEmail,
+  validateName,
+  validatePassword,
+  validateRequired,
+} from '../../utils/formValidation';
 
 export function PremiumLandingPage() {
   const navigate = useNavigate();
@@ -39,57 +41,52 @@ export function PremiumLandingPage() {
           </div>
           <div className="text-left">
             <p className="text-xl font-black tracking-[-0.06em]">VetVik</p>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-600">Veterinary SaaS</p>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-600">Veterinary clinic</p>
           </div>
         </button>
         <nav className="hidden items-center gap-7 text-sm font-bold text-slate-600 md:flex">
-          <a href="#platform" className="hover:text-teal-700">Platform</a>
-          <a href="#workflow" className="hover:text-teal-700">Workflow</a>
-          <a href="#roles" className="hover:text-teal-700">Roles</a>
+          <a href="#services" className="hover:text-teal-700">Services</a>
+          <a href="#workflow" className="hover:text-teal-700">How it works</a>
         </nav>
         <div className="flex items-center gap-2">
           <button onClick={() => navigate('/login')} className="hidden rounded-2xl px-4 py-2 text-sm font-bold text-slate-700 hover:bg-white/70 sm:block">
             Log in
           </button>
-          <PrimaryButton onClick={() => navigate('/register')} icon={ArrowRight}>Start demo</PrimaryButton>
+          <PrimaryButton onClick={() => navigate('/register')} icon={ArrowRight}>Book a visit</PrimaryButton>
         </div>
       </header>
 
       <main className="relative z-10">
-        <section className="mx-auto grid max-w-7xl items-center gap-10 px-5 pb-16 pt-10 lg:grid-cols-[1fr_0.95fr] lg:pt-20">
-          <div>
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/80 bg-white/65 px-4 py-2 text-xs font-black uppercase tracking-[0.18em] text-teal-700 shadow-sm">
-              <Sparkles className="h-4 w-4" />
-              Premium clinic operations without enterprise noise
-            </div>
-            <h1 className="max-w-4xl text-5xl font-black leading-[0.94] tracking-[-0.08em] text-slate-950 md:text-7xl">
-              Veterinary care, designed like a calm control room.
-            </h1>
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-600">
-              VetVik connects owners, doctors, and admins in one warm, high-clarity platform for scheduling, medical records, clinic flow, and actionable insights.
-            </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <PrimaryButton onClick={() => navigate('/register')} icon={CalendarCheck}>Book a demo visit</PrimaryButton>
-              <PrimaryButton onClick={() => navigate('/admin')} variant="secondary" icon={ShieldCheck}>Explore admin workspace</PrimaryButton>
-            </div>
-            <div className="mt-8 grid gap-3 sm:grid-cols-3">
-              {['Appointment-first workflow', 'Role-aware product surfaces', 'Warm pet-care identity'].map((item) => (
-                <div key={item} className="flex items-center gap-2 rounded-2xl bg-white/65 px-3 py-2 text-sm font-bold text-slate-600">
-                  <CheckCircle2 className="h-4 w-4 text-teal-600" />
-                  {item}
-                </div>
-              ))}
-            </div>
+        <section className="mx-auto max-w-7xl px-5 pb-16 pt-10 lg:pt-20">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/80 bg-white/65 px-4 py-2 text-xs font-black uppercase tracking-[0.18em] text-teal-700 shadow-sm">
+            <Sparkles className="h-4 w-4" />
+            Your trusted veterinary clinic
           </div>
-
-          <ProductPreview />
+          <h1 className="max-w-4xl text-5xl font-black leading-[0.94] tracking-[-0.08em] text-slate-950 md:text-7xl">
+            Professional care for your pets, right here at VetVik.
+          </h1>
+          <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-600">
+            VetVik is a modern veterinary clinic where clients and our team stay connected — online booking, medical records, and clear communication in one place.
+          </p>
+          <div className="mt-8 flex flex-wrap gap-3">
+            <PrimaryButton onClick={() => navigate('/register')} icon={CalendarCheck}>Book a visit</PrimaryButton>
+            <PrimaryButton onClick={() => navigate('/login')} variant="secondary" icon={PawPrint}>Sign in</PrimaryButton>
+          </div>
+          <div className="mt-8 grid gap-3 sm:grid-cols-3">
+            {['Online appointment booking', 'Digital medical records', 'Experienced veterinarians'].map((item) => (
+              <div key={item} className="flex items-center gap-2 rounded-2xl bg-white/65 px-3 py-2 text-sm font-bold text-slate-600">
+                <CheckCircle2 className="h-4 w-4 text-teal-600" />
+                {item}
+              </div>
+            ))}
+          </div>
         </section>
 
-        <section id="platform" className="mx-auto grid max-w-7xl gap-4 px-5 py-12 md:grid-cols-3">
+        <section id="services" className="mx-auto grid max-w-7xl gap-4 px-5 py-12 md:grid-cols-3">
           {[
-            { icon: CalendarCheck, title: 'Appointments as the product core', text: 'A clean scheduling model with rooms, doctors, services, statuses, and conflict-ready UI.' },
-            { icon: HeartPulse, title: 'Clinical clarity', text: 'Notes, timelines, patient context, and medical history are readable at a glance.' },
-            { icon: Users, title: 'Operations without clutter', text: 'Admin pages stay focused; heavy analytics live in dedicated Insights.' },
+            { icon: CalendarCheck, title: 'Easy online booking', text: 'Choose a doctor, service, and time slot — we confirm your visit and send reminders.' },
+            { icon: HeartPulse, title: 'Full medical history', text: 'Diagnoses, treatments, vaccinations, and visit notes stored securely in your pet profile.' },
+            { icon: Users, title: 'A clinic that runs smoothly', text: 'Our team coordinates schedules, rooms, and daily flow so your visit is calm and on time.' },
           ].map((feature) => {
             const Icon = feature.icon;
             return (
@@ -104,7 +101,7 @@ export function PremiumLandingPage() {
           })}
         </section>
 
-        <section id="workflow" className="mx-auto max-w-7xl px-5 py-12">
+        <section id="workflow" className="mx-auto max-w-7xl px-5 py-12 pb-24">
           <Surface className="overflow-hidden p-6 lg:p-8">
             <div className="grid gap-8 lg:grid-cols-[0.8fr_1fr]">
               <div>
@@ -112,126 +109,108 @@ export function PremiumLandingPage() {
                 <h2 className="mt-3 text-3xl font-black tracking-[-0.05em] md:text-5xl">From booking to medical record, every step feels connected.</h2>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                {['Owner books visit', 'Admin places doctor + room', 'Doctor sees timeline', 'Record closes the appointment'].map((step, index) => (
+                {['Client books visit', 'Admin assigns doctor + room', 'Doctor sees timeline', 'Record closes the appointment'].map((step, index) => (
                   <div key={step} className="rounded-[1.35rem] border border-slate-100 bg-slate-50/80 p-4">
                     <p className="text-xs font-black text-teal-600">0{index + 1}</p>
                     <p className="mt-2 font-black text-slate-950">{step}</p>
-                    <p className="mt-1 text-sm text-slate-500">Operational, realistic, and easy to defend in a diploma review.</p>
+                    <p className="mt-1 text-sm text-slate-500">Simple, clear, and designed around real clinic visits.</p>
                   </div>
                 ))}
               </div>
             </div>
           </Surface>
         </section>
-
-        <section id="roles" className="mx-auto max-w-7xl px-5 py-12 pb-24">
-          <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-teal-600">Role-based experience</p>
-              <h2 className="text-3xl font-black tracking-[-0.05em] text-slate-950">Three workspaces, one product language.</h2>
-            </div>
-          </div>
-          <div className="grid gap-4 md:grid-cols-3">
-            {roles.map((role) => {
-              const Icon = role.icon;
-              return (
-                <Surface key={role.label} interactive className="p-6">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="grid h-12 w-12 place-items-center rounded-2xl bg-slate-950 text-white">
-                      <Icon className="h-5 w-5" />
-                    </div>
-                    <button onClick={() => navigate(role.path)} className="rounded-full bg-teal-50 px-3 py-1 text-xs font-black text-teal-700">
-                      Open demo
-                    </button>
-                  </div>
-                  <h3 className="mt-5 text-2xl font-black tracking-[-0.04em]">{role.label}</h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">{role.text}</p>
-                </Surface>
-              );
-            })}
-          </div>
-        </section>
       </main>
     </div>
   );
 }
 
-function ProductPreview() {
-  const items = [
-    { time: '09:00', pet: 'Luna', service: 'General checkup', color: 'bg-teal-50 text-teal-800 border-teal-100' },
-    { time: '10:30', pet: 'Max', service: 'Vaccination', color: 'bg-sky-50 text-sky-800 border-sky-100' },
-    { time: '13:00', pet: 'Bella', service: 'Dermatology', color: 'bg-amber-50 text-amber-900 border-amber-100' },
-  ];
-  return (
-    <Surface className="relative p-4 lg:p-5">
-      <div className="rounded-[1.7rem] border border-slate-100 bg-slate-950 p-4 text-white">
-        <div className="mb-5 flex items-center justify-between">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-teal-200">Today at VetVik</p>
-            <p className="mt-1 text-2xl font-black tracking-[-0.05em]">Clinic command view</p>
-          </div>
-          <div className="rounded-2xl bg-white/10 px-3 py-2 text-xs font-black">Live demo</div>
-        </div>
-        <div className="grid gap-3">
-          {items.map((item) => (
-            <div key={item.pet} className={cn('rounded-2xl border p-4', item.color)}>
-              <div className="flex items-center justify-between">
-                <p className="font-black">{item.time} · {item.pet}</p>
-                <span className="rounded-full bg-white/70 px-2 py-1 text-xs font-black">Scheduled</span>
-              </div>
-              <p className="mt-1 text-sm opacity-80">{item.service} · Room 1 · Dr. Carter</p>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="mt-4 grid grid-cols-3 gap-3">
-        {[
-          ['24', 'Today visits'],
-          ['86%', 'Clinic load'],
-          ['3', 'Rooms active'],
-        ].map(([value, label]) => (
-          <div key={label} className="rounded-2xl bg-white/70 p-3 text-center">
-            <p className="text-2xl font-black tracking-[-0.04em]">{value}</p>
-            <p className="text-xs font-bold text-slate-400">{label}</p>
-          </div>
-        ))}
-      </div>
-    </Surface>
-  );
-}
-
 export function PremiumLoginPage() {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
-  const [role, setRole] = useState('/owner');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setFormError('');
+
+    const nextFieldErrors: Record<string, string> = {};
+    const emailError = validateEmail(email);
+    const passwordError = validateRequired(password, 'Password');
+    if (emailError) nextFieldErrors.email = emailError;
+    if (passwordError) nextFieldErrors.password = passwordError;
+    setFieldErrors(nextFieldErrors);
+    if (Object.keys(nextFieldErrors).length > 0) return;
+
+    setLoading(true);
+    try {
+      const role = await login(email.trim(), password);
+      navigate(roleHomePath(role));
+    } catch (error) {
+      const apiFieldErrors = mapApiErrorsToFields(error);
+      if (Object.keys(apiFieldErrors).length > 0) {
+        setFieldErrors(apiFieldErrors);
+      }
+      setFormError(formatApiError(error, 'Invalid email or password.'));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <AuthFrame
-      title="Welcome back to your care workspace"
-      subtitle="Sign in with a demo role or continue with your account."
-      sideTitle="Care, operations, and clinical work in one calm product."
+      title="Welcome back to VetVik"
+      subtitle="Sign in with your account. Your dashboard opens automatically based on your role."
+      sideTitle="Your pet's health records, visits, and clinic communication — all in one place."
     >
-      <form onSubmit={(event) => { event.preventDefault(); navigate(role); }} className="space-y-5">
-        <RoleSelector role={role} onChange={setRole} />
-        <Field label="Email address" placeholder="anna@vetvik.local" type="email" />
-        <div>
-          <label className="mb-2 block text-sm font-bold text-slate-700">Password</label>
-          <div className="relative">
-            <input
-              type={showPassword ? 'text' : 'password'}
-              placeholder="••••••••"
-              className="h-12 w-full rounded-2xl border border-slate-100 bg-slate-50 px-4 pr-11 text-sm outline-none transition focus:border-teal-200 focus:bg-white focus:ring-4 focus:ring-teal-500/10"
-            />
-            <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
-              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </button>
-          </div>
-        </div>
+      <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+        <Field
+          id="login-email"
+          label="Email address"
+          placeholder="name@example.com"
+          type="email"
+          autoComplete="email"
+          required
+          value={email}
+          onChange={(value) => {
+            setEmail(value);
+            clearFieldError('email', setFieldErrors);
+          }}
+          error={fieldErrors.email}
+        />
+        <PasswordField
+          id="login-password"
+          label="Password"
+          autoComplete="current-password"
+          required
+          showPassword={showPassword}
+          onToggleVisibility={() => setShowPassword(!showPassword)}
+          value={password}
+          onChange={(value) => {
+            setPassword(value);
+            clearFieldError('password', setFieldErrors);
+          }}
+          error={fieldErrors.password}
+        />
+        {formError && <FormError message={formError} />}
         <div className="flex items-center justify-between text-sm">
           <label className="flex items-center gap-2 text-slate-600"><input type="checkbox" className="accent-teal-600" /> Remember me</label>
           <button type="button" className="font-bold text-teal-700">Forgot password?</button>
         </div>
-        <PrimaryButton type="submit" icon={ArrowRight}>Enter workspace</PrimaryButton>
+        <PrimaryButton type="submit" icon={ArrowRight} disabled={loading}>
+          {loading ? 'Signing in…' : 'Sign in'}
+        </PrimaryButton>
+        <p className="text-center text-xs text-slate-400">
+          New client?{' '}
+          <button type="button" onClick={() => navigate('/register')} className="font-bold text-teal-700">
+            Create an account
+          </button>
+        </p>
       </form>
     </AuthFrame>
   );
@@ -239,45 +218,158 @@ export function PremiumLoginPage() {
 
 export function PremiumRegisterPage() {
   const navigate = useNavigate();
-  const [role, setRole] = useState('/owner');
+  const { registerClient } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setFormError('');
+
+    const nextFieldErrors: Record<string, string> = {};
+    const firstNameError = validateName(firstName, 'First name');
+    const lastNameError = validateName(lastName, 'Last name');
+    const emailError = validateEmail(email);
+    const passwordError = validatePassword(password);
+
+    if (firstNameError) nextFieldErrors.firstName = firstNameError;
+    if (lastNameError) nextFieldErrors.lastName = lastNameError;
+    if (emailError) nextFieldErrors.email = emailError;
+    if (passwordError) nextFieldErrors.password = passwordError;
+    if (!confirm) {
+      nextFieldErrors.confirm = 'Please confirm your password.';
+    } else if (password !== confirm) {
+      nextFieldErrors.confirm = 'Passwords do not match.';
+    }
+
+    setFieldErrors(nextFieldErrors);
+    if (Object.keys(nextFieldErrors).length > 0) return;
+
+    setLoading(true);
+    try {
+      await registerClient({
+        email: email.trim(),
+        password,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+      });
+      navigate('/client');
+    } catch (error) {
+      const apiFieldErrors = mapApiErrorsToFields(error);
+      if (Object.keys(apiFieldErrors).length > 0) {
+        setFieldErrors((prev) => ({ ...prev, ...apiFieldErrors }));
+      }
+      setFormError(formatApiError(error, 'Could not create account. Please try again.'));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <AuthFrame
-      title="Create a VetVik workspace account"
-      subtitle="Choose a role, create credentials, and preview the product instantly."
-      sideTitle="A warmer way to run a veterinary clinic."
+      title="Create your client account"
+      subtitle="Registration is available for clinic clients only. Staff accounts are created by the clinic administrator."
+      sideTitle="Join our clinic community and manage care for your pets online."
     >
-      <form onSubmit={(event) => { event.preventDefault(); navigate(role); }} className="space-y-5">
-        <RoleSelector role={role} onChange={setRole} />
-        <Field label="Full name" placeholder="Anna Smith" />
-        <Field label="Email address" placeholder="anna@vetvik.local" type="email" />
+      <form onSubmit={handleSubmit} className="space-y-5" noValidate>
         <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label className="mb-2 block text-sm font-bold text-slate-700">Password</label>
-            <div className="relative">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                placeholder="••••••••"
-                className="h-12 w-full rounded-2xl border border-slate-100 bg-slate-50 px-4 pr-11 text-sm outline-none transition focus:border-teal-200 focus:bg-white focus:ring-4 focus:ring-teal-500/10"
-              />
-              <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-          </div>
-          <Field label="Confirm" placeholder="••••••••" type="password" />
+          <Field
+            id="register-first-name"
+            label="First name"
+            placeholder="Alex"
+            autoComplete="given-name"
+            required
+            value={firstName}
+            onChange={(value) => {
+              setFirstName(value);
+              clearFieldError('firstName', setFieldErrors);
+            }}
+            error={fieldErrors.firstName}
+          />
+          <Field
+            id="register-last-name"
+            label="Last name"
+            placeholder="Morgan"
+            autoComplete="family-name"
+            required
+            value={lastName}
+            onChange={(value) => {
+              setLastName(value);
+              clearFieldError('lastName', setFieldErrors);
+            }}
+            error={fieldErrors.lastName}
+          />
+        </div>
+        <Field
+          id="register-email"
+          label="Email address"
+          placeholder="name@example.com"
+          type="email"
+          autoComplete="email"
+          required
+          value={email}
+          onChange={(value) => {
+            setEmail(value);
+            clearFieldError('email', setFieldErrors);
+          }}
+          error={fieldErrors.email}
+        />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <PasswordField
+            id="register-password"
+            label="Password"
+            autoComplete="new-password"
+            required
+            showPassword={showPassword}
+            onToggleVisibility={() => setShowPassword(!showPassword)}
+            value={password}
+            onChange={(value) => {
+              setPassword(value);
+              clearFieldError('password', setFieldErrors);
+            }}
+            error={fieldErrors.password}
+          />
+          <Field
+            id="register-confirm"
+            label="Confirm password"
+            placeholder="••••••••"
+            type="password"
+            autoComplete="new-password"
+            required
+            value={confirm}
+            onChange={(value) => {
+              setConfirm(value);
+              clearFieldError('confirm', setFieldErrors);
+            }}
+            error={fieldErrors.confirm}
+          />
         </div>
         <div className="rounded-2xl bg-teal-50 p-3 text-sm font-bold text-teal-800">
-          Strong demo password: at least 8 characters, 1 uppercase letter, 1 number.
+          Strong password: at least 8 characters, 1 uppercase letter, 1 number.
         </div>
-        <PrimaryButton type="submit" icon={ArrowRight}>Create account</PrimaryButton>
+        {formError && <FormError message={formError} />}
+        <PrimaryButton type="submit" icon={ArrowRight} disabled={loading}>
+          {loading ? 'Creating account…' : 'Create account'}
+        </PrimaryButton>
+        <p className="text-center text-xs text-slate-400">
+          Already have an account?{' '}
+          <button type="button" onClick={() => navigate('/login')} className="font-bold text-teal-700">
+            Sign in
+          </button>
+        </p>
       </form>
     </AuthFrame>
   );
 }
 
-function AuthFrame({ title, subtitle, sideTitle, children }: { title: string; subtitle: string; sideTitle: string; children: React.ReactNode }) {
+function AuthFrame({ title, subtitle, sideTitle, children }: Readonly<{ title: string; subtitle: string; sideTitle: string; children: React.ReactNode }>) {
   const navigate = useNavigate();
   return (
     <div className="min-h-screen bg-[#f5f8f3] p-4 text-slate-950">
@@ -292,10 +384,10 @@ function AuthFrame({ title, subtitle, sideTitle, children }: { title: string; su
             <span className="text-xl font-black tracking-[-0.05em]">VetVik</span>
           </button>
           <div className="relative z-10 mt-28">
-            <p className="mb-4 inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-[0.16em] text-teal-100">Premium veterinary SaaS</p>
+            <p className="mb-4 inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-[0.16em] text-teal-100">Veterinary clinic VetVik</p>
             <h2 className="text-5xl font-black leading-[0.95] tracking-[-0.07em]">{sideTitle}</h2>
             <div className="mt-8 grid gap-3">
-              {['Role-aware navigation', 'Single consistent profile menu', 'Operational pages without clutter'].map((item) => (
+              {['Online booking', 'Medical records in one place', 'Direct clinic communication'].map((item) => (
                 <div key={item} className="flex items-center gap-3 rounded-2xl bg-white/10 p-3 text-sm font-bold text-slate-100">
                   <CheckCircle2 className="h-4 w-4 text-teal-200" />
                   {item}
@@ -325,40 +417,132 @@ function AuthFrame({ title, subtitle, sideTitle, children }: { title: string; su
   );
 }
 
-function Field({ label, placeholder, type = 'text' }: { label: string; placeholder: string; type?: string }) {
+function clearFieldError(
+  field: string,
+  setFieldErrors: React.Dispatch<React.SetStateAction<Record<string, string>>>,
+) {
+  setFieldErrors((prev) => {
+    if (!prev[field]) return prev;
+    const next = { ...prev };
+    delete next[field];
+    return next;
+  });
+}
+
+function FormError({ message }: Readonly<{ message: string }>) {
+  return <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">{message}</p>;
+}
+
+function Field({
+  id,
+  label,
+  placeholder,
+  type = 'text',
+  value,
+  onChange,
+  error,
+  required = false,
+  autoComplete,
+}: Readonly<{
+  id: string;
+  label: string;
+  placeholder: string;
+  type?: string;
+  value?: string;
+  onChange?: (value: string) => void;
+  error?: string;
+  required?: boolean;
+  autoComplete?: string;
+}>) {
   return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-bold text-slate-700">{label}</span>
+    <label htmlFor={id} className="block">
+      <span className="mb-2 block text-sm font-bold text-slate-700">
+        {label}
+        {required && <span className="text-rose-500"> *</span>}
+      </span>
       <input
+        id={id}
         type={type}
+        value={value}
+        onChange={onChange ? (e) => onChange(e.target.value) : undefined}
         placeholder={placeholder}
-        className="h-12 w-full rounded-2xl border border-slate-100 bg-slate-50 px-4 text-sm outline-none transition focus:border-teal-200 focus:bg-white focus:ring-4 focus:ring-teal-500/10"
+        required={required}
+        autoComplete={autoComplete}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${id}-error` : undefined}
+        className={`h-12 w-full rounded-2xl border bg-slate-50 px-4 text-sm outline-none transition focus:bg-white focus:ring-4 focus:ring-teal-500/10 ${
+          error
+            ? 'border-rose-300 focus:border-rose-300'
+            : 'border-slate-100 focus:border-teal-200'
+        }`}
       />
+      {error && (
+        <p id={`${id}-error`} className="mt-1.5 text-xs font-bold text-rose-600">
+          {error}
+        </p>
+      )}
     </label>
   );
 }
 
-function RoleSelector({ role, onChange }: { role: string; onChange: (role: string) => void }) {
+function PasswordField({
+  id,
+  label,
+  value,
+  onChange,
+  showPassword,
+  onToggleVisibility,
+  error,
+  required = false,
+  autoComplete,
+}: Readonly<{
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  showPassword: boolean;
+  onToggleVisibility: () => void;
+  error?: string;
+  required?: boolean;
+  autoComplete?: string;
+}>) {
   return (
-    <div className="grid gap-2 sm:grid-cols-3">
-      {roles.map((item) => {
-        const Icon = item.icon;
-        const active = role === item.path;
-        return (
-          <button
-            key={item.path}
-            type="button"
-            onClick={() => onChange(item.path)}
-            className={cn(
-              'rounded-2xl border p-3 text-left transition',
-              active ? 'border-teal-200 bg-teal-50 text-teal-900 shadow-sm' : 'border-slate-100 bg-slate-50 text-slate-600 hover:bg-white',
-            )}
-          >
-            <Icon className="mb-2 h-4 w-4" />
-            <p className="text-sm font-black">{item.label}</p>
-          </button>
-        );
-      })}
-    </div>
+    <label htmlFor={id} className="block">
+      <span className="mb-2 block text-sm font-bold text-slate-700">
+        {label}
+        {required && <span className="text-rose-500"> *</span>}
+      </span>
+      <div className="relative">
+        <input
+          id={id}
+          type={showPassword ? 'text' : 'password'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="••••••••"
+          required={required}
+          autoComplete={autoComplete}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${id}-error` : undefined}
+          className={`h-12 w-full rounded-2xl border bg-slate-50 px-4 pr-11 text-sm outline-none transition focus:bg-white focus:ring-4 focus:ring-teal-500/10 ${
+            error
+              ? 'border-rose-300 focus:border-rose-300'
+              : 'border-slate-100 focus:border-teal-200'
+          }`}
+        />
+        <button
+          type="button"
+          onClick={onToggleVisibility}
+          aria-label={showPassword ? 'Hide password' : 'Show password'}
+          className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400"
+        >
+          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button>
+      </div>
+      {error && (
+        <p id={`${id}-error`} className="mt-1.5 text-xs font-bold text-rose-600">
+          {error}
+        </p>
+      )}
+    </label>
   );
 }

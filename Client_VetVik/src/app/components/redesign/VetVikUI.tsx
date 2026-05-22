@@ -8,7 +8,6 @@ import {
   ChevronRight,
   Clock3,
   FileText,
-  HeartPulse,
   PawPrint,
   Search,
   Sparkles,
@@ -16,19 +15,19 @@ import {
   Upload,
   UserRound,
 } from 'lucide-react';
-import { petSpeciesEmoji } from '../../data/mockData';
+import { petSpeciesEmoji } from '../../data/formatters';
 
 type Tone = 'teal' | 'blue' | 'amber' | 'coral' | 'slate' | 'green' | 'red' | 'purple';
 
 const toneMap: Record<Tone, string> = {
-  teal: 'bg-teal-50 text-teal-700 border-teal-100',
-  blue: 'bg-sky-50 text-sky-700 border-sky-100',
-  amber: 'bg-amber-50 text-amber-700 border-amber-100',
-  coral: 'bg-rose-50 text-rose-700 border-rose-100',
-  slate: 'bg-slate-50 text-slate-700 border-slate-100',
-  green: 'bg-emerald-50 text-emerald-700 border-emerald-100',
-  red: 'bg-red-50 text-red-700 border-red-100',
-  purple: 'bg-violet-50 text-violet-700 border-violet-100',
+  teal: 'border-teal-400/25 bg-teal-400/12 text-teal-100',
+  blue: 'border-sky-400/25 bg-sky-400/12 text-sky-100',
+  amber: 'border-amber-300/25 bg-amber-300/14 text-amber-100',
+  coral: 'border-rose-300/25 bg-rose-400/12 text-rose-100',
+  slate: 'border-slate-500/30 bg-slate-800/80 text-slate-100',
+  green: 'border-emerald-400/25 bg-emerald-400/12 text-emerald-100',
+  red: 'border-red-400/25 bg-red-400/12 text-red-100',
+  purple: 'border-violet-400/25 bg-violet-400/12 text-violet-100',
 };
 
 const iconToneMap: Record<Tone, string> = {
@@ -58,8 +57,8 @@ export function Surface({
   return (
     <div
       className={cn(
-        'rounded-[1.75rem] border border-white/70 bg-white/82 shadow-[0_18px_70px_rgba(15,23,42,0.08)] backdrop-blur-xl',
-        interactive && 'transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_24px_80px_rgba(15,23,42,0.12)]',
+        'rounded-[1.75rem] border border-slate-700/70 bg-slate-900/92 shadow-[0_22px_80px_rgba(0,0,0,0.32)]',
+        interactive && 'transition-all duration-200 hover:-translate-y-0.5 hover:border-teal-400/35 hover:bg-slate-900 hover:shadow-[0_28px_90px_rgba(0,0,0,0.42)]',
         className,
       )}
     >
@@ -82,17 +81,17 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-[2rem] border border-white/70 bg-[radial-gradient(circle_at_top_left,rgba(20,184,166,0.18),transparent_35%),linear-gradient(135deg,#ffffff_0%,#f0fdfa_52%,#eef6ff_100%)] p-6 shadow-[0_22px_80px_rgba(15,23,42,0.08)]">
-      <div className="absolute -right-10 -top-12 h-44 w-44 rounded-full bg-amber-200/35 blur-2xl" />
-      <div className="absolute -bottom-16 left-1/3 h-40 w-40 rounded-full bg-sky-200/35 blur-2xl" />
+    <div className="relative overflow-hidden rounded-[2rem] border border-slate-700/70 bg-[radial-gradient(circle_at_top_left,rgba(20,184,166,0.22),transparent_35%),linear-gradient(135deg,#0f172a_0%,#102a35_52%,#08111f_100%)] p-6 shadow-[0_22px_80px_rgba(0,0,0,0.35)]">
+      <div className="absolute -right-10 -top-12 h-44 w-44 rounded-full bg-amber-300/15 blur-2xl" />
+      <div className="absolute -bottom-16 left-1/3 h-40 w-40 rounded-full bg-sky-400/15 blur-2xl" />
       <div className="relative z-10 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
         <div className="max-w-3xl">
-          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/80 bg-white/70 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-teal-700 shadow-sm">
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-teal-300/25 bg-teal-300/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-teal-100 shadow-sm">
             <Icon className="h-3.5 w-3.5" />
-            {eyebrow ?? 'VetVik workspace'}
+            {eyebrow ?? 'VetVik clinic'}
           </div>
-          <h1 className="text-3xl font-black tracking-[-0.04em] text-slate-950 md:text-5xl">{title}</h1>
-          {description && <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 md:text-base">{description}</p>}
+          <h1 className="text-3xl font-black tracking-[-0.04em] text-white md:text-5xl">{title}</h1>
+          {description && <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 md:text-base">{description}</p>}
         </div>
         {actions && <div className="flex flex-wrap items-center gap-3">{actions}</div>}
       </div>
@@ -112,8 +111,8 @@ export function SectionHeader({
   return (
     <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <h2 className="text-lg font-black tracking-[-0.02em] text-slate-950">{title}</h2>
-        {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
+        <h2 className="text-lg font-black tracking-[-0.02em] text-white">{title}</h2>
+        {description && <p className="mt-1 text-sm text-slate-400">{description}</p>}
       </div>
       {action}
     </div>
@@ -126,25 +125,28 @@ export function PrimaryButton({
   icon: Icon,
   variant = 'primary',
   type = 'button',
+  disabled = false,
 }: {
   children: ReactNode;
   onClick?: () => void;
   icon?: ElementType;
   variant?: 'primary' | 'secondary' | 'ghost' | 'dark';
   type?: 'button' | 'submit';
+  disabled?: boolean;
 }) {
   const styles = {
     primary: 'bg-teal-600 text-white shadow-lg shadow-teal-600/20 hover:bg-teal-700',
-    secondary: 'border border-teal-100 bg-white/80 text-teal-800 hover:bg-teal-50',
-    ghost: 'bg-white/10 text-slate-700 hover:bg-white/70',
-    dark: 'bg-slate-950 text-white shadow-lg shadow-slate-950/20 hover:bg-slate-800',
+    secondary: 'border border-teal-300/25 bg-teal-400/10 text-teal-100 hover:bg-teal-400/18',
+    ghost: 'bg-slate-800/70 text-slate-200 hover:bg-slate-700',
+    dark: 'bg-slate-100 text-slate-950 shadow-lg shadow-black/20 hover:bg-white',
   }[variant];
 
   return (
     <button
       type={type}
       onClick={onClick}
-      className={cn('inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-sm font800 transition-all active:scale-[0.98]', styles)}
+      disabled={disabled}
+      className={cn('inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-sm font800 transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60', styles)}
       style={{ fontWeight: 800 }}
     >
       {Icon && <Icon className="h-4 w-4" />}
@@ -176,10 +178,10 @@ export function StatusBadge({ status }: { status: string }) {
 export function SearchInput({ placeholder = 'Search VetVik...' }: { placeholder?: string }) {
   return (
     <div className="relative w-full">
-      <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
       <input
         placeholder={placeholder}
-        className="h-12 w-full rounded-2xl border border-white/70 bg-white/75 pl-11 pr-4 text-sm text-slate-800 shadow-sm outline-none transition focus:border-teal-200 focus:ring-4 focus:ring-teal-500/10"
+        className="h-12 w-full rounded-2xl border border-slate-700 bg-slate-950/70 pl-11 pr-4 text-sm text-slate-100 shadow-sm outline-none transition placeholder:text-slate-500 focus:border-teal-400/60 focus:ring-4 focus:ring-teal-500/10"
       />
     </div>
   );
@@ -204,7 +206,7 @@ export function FilterBar({
                 'rounded-2xl border px-3 py-2 text-xs font-bold transition',
                 index === 0
                   ? 'border-teal-200 bg-teal-600 text-white shadow-lg shadow-teal-600/15'
-                  : 'border-white/80 bg-white/70 text-slate-600 hover:bg-white',
+                  : 'border-slate-700 bg-slate-800/80 text-slate-300 hover:bg-slate-800 hover:text-white',
               )}
             >
               {filter}
@@ -267,7 +269,7 @@ export function PetAvatar({ species, size = 'md' }: { species: string; size?: 's
 
 export function UploadAvatar({ label = 'Change photo' }: { label?: string }) {
   return (
-    <button className="inline-flex items-center gap-2 rounded-full border border-teal-100 bg-white/80 px-3 py-1.5 text-xs font-bold text-teal-700 shadow-sm hover:bg-teal-50">
+    <button disabled className="inline-flex items-center gap-2 rounded-full border border-teal-100 bg-white/80 px-3 py-1.5 text-xs font-bold text-teal-700 shadow-sm disabled:cursor-not-allowed disabled:opacity-60">
       <Upload className="h-3.5 w-3.5" />
       {label}
     </button>
@@ -316,6 +318,7 @@ export function PetCard({
 export function AppointmentCard({
   appointment,
   compact = false,
+  actions,
 }: {
   appointment: {
     petName: string;
@@ -329,6 +332,7 @@ export function AppointmentCard({
     notes?: string;
   };
   compact?: boolean;
+  actions?: ReactNode;
 }) {
   return (
     <Surface interactive className={cn('p-4', compact && 'shadow-none')}>
@@ -346,15 +350,19 @@ export function AppointmentCard({
             {appointment.ownerName && <span className="inline-flex items-center gap-1"><UserRound className="h-3.5 w-3.5" />{appointment.ownerName}</span>}
           </div>
         </div>
-        <button className="rounded-2xl border border-slate-100 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-teal-50 hover:text-teal-700">
-          Details
-        </button>
+        {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
       </div>
     </Surface>
   );
 }
 
-export function DoctorCard({ doctor }: { doctor: { name: string; specialization: string; email: string; phone: string; status: string; todayAppointments: number; avatar: string; experience: string } }) {
+export function DoctorCard({
+  doctor,
+  actions,
+}: {
+  doctor: { name: string; specialization: string; email: string; phone: string; status: string; todayAppointments: number; avatar: string; experience: string };
+  actions?: ReactNode;
+}) {
   return (
     <Surface interactive className="p-5">
       <div className="flex items-start justify-between">
@@ -383,6 +391,7 @@ export function DoctorCard({ doctor }: { doctor: { name: string; specialization:
         <p>{doctor.email}</p>
         <p>{doctor.phone}</p>
       </div>
+      {actions ? <div className="mt-4 flex flex-wrap gap-2">{actions}</div> : null}
     </Surface>
   );
 }
@@ -476,48 +485,42 @@ export function CalendarGrid({
 }: {
   appointments: Array<{ id: string; time: string; petName: string; petSpecies: string; doctorName: string; service: string; status: string }>;
 }) {
-  const hours = ['9:00 AM', '10:00 AM', '11:00 AM', '12:00 PM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM'];
-  const doctors = ['Dr. Olivia Carter', 'Dr. Mark Wilson', 'Dr. Emily Brown'];
+  const doctors = Array.from(new Set(appointments.map((appointment) => appointment.doctorName)));
+  const hours = Array.from(new Set(appointments.map((appointment) => appointment.time)));
+
+  if (!appointments.length || !doctors.length || !hours.length) {
+    return (
+      <EmptyState
+        title="No schedule data available"
+        description="Calendar blocks will appear here once appointments arrive from the backend."
+      />
+    );
+  }
+
+  const gridTemplateColumns = `100px repeat(${doctors.length}, minmax(0, 1fr))`;
 
   return (
     <Surface className="overflow-hidden">
       <div className="hidden min-w-[900px] lg:block">
-        <div className="grid grid-cols-[100px_repeat(3,1fr)] border-b border-slate-100 bg-white/70">
+        <div className="grid border-b border-slate-100 bg-white/70" style={{ gridTemplateColumns }}>
           <div className="p-4 text-xs font-black uppercase tracking-[0.18em] text-slate-400">Time</div>
           {doctors.map((doctor) => (
             <div key={doctor} className="border-l border-slate-100 p-4">
               <p className="font-black text-slate-950">{doctor}</p>
-              <p className="text-xs text-slate-400">Room coverage active</p>
+              <p className="text-xs text-slate-400">Live backend appointments</p>
             </div>
           ))}
         </div>
         {hours.map((hour) => (
-          <div key={hour} className="grid min-h-[100px] grid-cols-[100px_repeat(3,1fr)] border-b border-slate-100 last:border-b-0">
+          <div key={hour} className="grid min-h-[100px] border-b border-slate-100 last:border-b-0" style={{ gridTemplateColumns }}>
             <div className="p-4 text-xs font-bold text-slate-400">{hour}</div>
-            {doctors.map((doctor, doctorIndex) => {
+            {doctors.map((doctor) => {
               const blocks = appointments.filter((a) => a.doctorName === doctor && a.time === hour);
-              const overlapping = doctorIndex === 0 && hour === '10:00 AM';
               return (
                 <div key={doctor} className="relative border-l border-slate-100 p-3">
                   {blocks.map((appointment) => (
                     <AppointmentBlock key={appointment.id} appointment={appointment} />
                   ))}
-                  {overlapping && (
-                    <div className="absolute bottom-3 right-3 left-10">
-                      <AppointmentBlock
-                        appointment={{
-                          id: 'overlap-demo',
-                          time: '10:15 AM',
-                          petName: 'Bella',
-                          petSpecies: 'Rabbit',
-                          doctorName: doctor,
-                          service: 'Quick vaccine check',
-                          status: 'Scheduled',
-                        }}
-                        tone="amber"
-                      />
-                    </div>
-                  )}
                 </div>
               );
             })}
@@ -591,22 +594,24 @@ export function ClinicalNotePanel() {
   const fields = ['Symptoms', 'Diagnosis', 'Treatment plan', 'Prescription', 'Recommendations', 'Follow-up'];
   return (
     <Surface className="p-5">
-      <SectionHeader title="Clinical note" description="Structured visit documentation with clear clinical sections." />
+      <SectionHeader title="Clinical note" description="Legacy placeholder for note editing. The live doctor note flow now writes through the dedicated medical-record UI." />
       <div className="grid gap-4">
         {fields.map((field, index) => (
           <label key={field} className="block">
             <span className="mb-2 block text-sm font-bold text-slate-700">{field}</span>
             <textarea
+              disabled
               rows={index === 0 ? 3 : 2}
               placeholder={`Write ${field.toLowerCase()}...`}
-              className="w-full resize-none rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3 text-sm outline-none transition focus:border-teal-200 focus:bg-white focus:ring-4 focus:ring-teal-500/10"
+              className="w-full resize-none rounded-2xl border border-slate-100 bg-slate-100 px-4 py-3 text-sm text-slate-500 outline-none"
             />
           </label>
         ))}
       </div>
+      <p className="mt-4 text-sm text-slate-400">Keep using the dedicated doctor note screen for save and complete actions.</p>
       <div className="mt-5 flex flex-wrap gap-3">
-        <PrimaryButton variant="secondary" icon={FileText}>Save draft</PrimaryButton>
-        <PrimaryButton icon={CheckCircle2}>Complete visit</PrimaryButton>
+        <PrimaryButton variant="secondary" icon={FileText} disabled>Save draft</PrimaryButton>
+        <PrimaryButton icon={CheckCircle2} disabled>Complete visit</PrimaryButton>
       </div>
     </Surface>
   );
@@ -632,9 +637,9 @@ export function PatientContextCard({
           <p className="text-sm text-slate-500">{breed} · Owner: {owner}</p>
         </div>
       </div>
-      <div className="mt-5 grid grid-cols-2 gap-3">
-        <MetricCard label="Vitals" value="Stable" caption="No urgent flags" icon={HeartPulse} tone="green" />
-        <MetricCard label="Last visit" value="Apr 22" caption="Dermatitis follow-up" icon={Calendar} tone="blue" />
+      <div className="mt-5 rounded-2xl bg-slate-50 p-4">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Context</p>
+        <p className="mt-1 text-sm text-slate-600">This card now shows only identity data passed from the active screen. Clinical vitals and history must come from backend records.</p>
       </div>
     </Surface>
   );

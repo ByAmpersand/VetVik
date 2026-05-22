@@ -1,5 +1,10 @@
 import { VetVikShell } from '../components/redesign/VetVikShell';
+import { RequireAuth } from '../auth/RequireAuth';
 
 export function DoctorLayout() {
-  return <VetVikShell role="doctor" />;
+  return (
+    <RequireAuth allowedRoles={['doctor']}>
+      <VetVikShell />
+    </RequireAuth>
+  );
 }

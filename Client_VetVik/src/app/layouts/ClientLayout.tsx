@@ -1,9 +1,9 @@
 import { VetVikShell } from '../components/redesign/VetVikShell';
 import { RequireAuth } from '../auth/RequireAuth';
 
-export function AdminLayout() {
+export function ClientLayout() {
   return (
-    <RequireAuth allowedRoles={['admin', 'superadmin']}>
+    <RequireAuth allowedRoles={['client']}>
       <VetVikShell />
     </RequireAuth>
   );

@@ -1,11 +1,14 @@
+import type { Role } from "./types";
+
 const TOKEN_KEY = "vetvik:auth";
+export const AUTH_STORAGE_CLEARED_EVENT = "vetvik:auth-cleared";
 
 export interface StoredAuth {
   accessToken: string;
   expiresAtUtc: string;
   userId: string;
   email: string;
-  roles: string[];
+  roles: Role[];
 }
 
 export const authStorage = {
@@ -24,6 +27,7 @@ export const authStorage = {
 
   clear(): void {
     localStorage.removeItem(TOKEN_KEY);
+    globalThis.dispatchEvent(new Event(AUTH_STORAGE_CLEARED_EVENT));
   },
 
   /** Returns the token if present and not expired (with a 30-second skew). */

@@ -1,0 +1,166 @@
+import type {
+  AppointmentResponse,
+  DoctorResponse,
+  MedicalRecordResponse,
+  PetResponse,
+  VaccinationResponse,
+} from '../../api/types';
+import {
+  calcAge,
+  doctorDisplayName,
+  doctorInitials,
+  formatDate,
+  formatTime,
+  mapAppointmentStatus,
+  mapPetHealthStatus,
+} from './formatters';
+import { parseCustomBreedFromNotes, resolvePetBreedName } from '../utils/petFormHelpers';
+
+export interface PetViewModel {
+  id: string;
+  name: string;
+  species: string;
+  breed: string;
+  age: number;
+  gender: string;
+  lastVisit: string;
+  healthStatus: string;
+  ownerId: string;
+  weight: string;
+  color: string;
+  microchip?: string;
+  notes?: string;
+}
+
+export interface AppointmentViewModel {
+  id: string;
+  petId: string;
+  petName: string;
+  petSpecies: string;
+  ownerId: string;
+  ownerName: string;
+  ownerPhone: string;
+  doctorId: string;
+  doctorName: string;
+  date: string;
+  time: string;
+  service: string;
+  status: string;
+  notes: string;
+}
+
+export interface MedicalRecordViewModel {
+  id: string;
+  petId: string;
+  petName: string;
+  date: string;
+  doctorId: string;
+  doctorName: string;
+  reason: string;
+  diagnosis: string;
+  treatment: string;
+  prescription?: string;
+  nextVisit?: string;
+}
+
+export interface DoctorViewModel {
+  id: string;
+  name: string;
+  specialization: string;
+  email: string;
+  phone: string;
+  status: string;
+  todayAppointments: number;
+  avatar: string;
+  experience: string;
+}
+
+export interface VaccinationViewModel {
+  id: string;
+  petId: string;
+  vaccineName: string;
+  date: string;
+  nextDue: string;
+  status: string;
+  administeredBy: string;
+}
+
+export function mapPet(
+  pet: PetResponse,
+  opts?: { lastVisit?: string | null; overdueVaccines?: boolean },
+): PetViewModel {
+  return {
+    id: pet.id,
+    name: pet.name,
+    species: pet.speciesName,
+    breed: resolvePetBreedName(pet.breedName, pet.notes),
+    age: calcAge(pet.birthDate),
+    gender: pet.sex === 'Unknown' ? 'Unknown' : pet.sex,
+    lastVisit: formatDate(opts?.lastVisit),
+    healthStatus: mapPetHealthStatus(!!opts?.overdueVaccines, true),
+    ownerId: pet.ownerId,
+    weight: pet.weight != null ? `${pet.weight} kg` : '—',
+    color: '—',
+    notes: parseCustomBreedFromNotes(pet.notes).careNotes || undefined,
+  };
+}
+
+export function mapAppointment(a: AppointmentResponse): AppointmentViewModel {
+  return {
+    id: a.id,
+    petId: a.petId,
+    petName: a.petName,
+    petSpecies: a.petSpecies,
+    ownerId: a.ownerId,
+    ownerName: a.ownerFullName,
+    ownerPhone: '',
+    doctorId: a.doctorId,
+    doctorName: a.doctorFullName,
+    date: formatDate(a.startAt),
+    time: formatTime(a.startAt),
+    service: a.serviceName,
+    status: mapAppointmentStatus(a.status),
+    notes: a.notes ?? a.reason ?? '',
+  };
+}
+
+export function mapMedicalRecord(r: MedicalRecordResponse): MedicalRecordViewModel {
+  return {
+    id: r.id,
+    petId: r.petId,
+    petName: r.petName,
+    date: formatDate(r.appointmentDate),
+    doctorId: r.doctorId,
+    doctorName: r.doctorFullName,
+    reason: r.symptoms ?? 'Visit',
+    diagnosis: r.diagnosis ?? '—',
+    treatment: r.treatment ?? '—',
+    prescription: r.recommendations ?? undefined,
+  };
+}
+
+export function mapDoctor(d: DoctorResponse, todayCount = 0): DoctorViewModel {
+  return {
+    id: d.id,
+    name: doctorDisplayName(d.firstName, d.lastName),
+    specialization: d.specializations[0]?.name ?? 'General Veterinary',
+    email: d.email,
+    phone: '—',
+    status: d.isActive ? 'Available' : 'Off duty',
+    todayAppointments: todayCount,
+    avatar: doctorInitials(d.firstName, d.lastName),
+    experience: '—',
+  };
+}
+
+export function mapVaccination(v: VaccinationResponse): VaccinationViewModel {
+  return {
+    id: v.id,
+    petId: v.petId,
+    vaccineName: v.vaccineName,
+    date: formatDate(v.administeredDate),
+    nextDue: formatDate(v.nextDueDate),
+    status: v.status,
+    administeredBy: v.administeredByDoctorName ?? 'Clinic staff',
+  };
+}
