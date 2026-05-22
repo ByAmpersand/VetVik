@@ -1,5 +1,5 @@
-import { DashboardLayout } from '../components/DashboardLayout';
+import { VetVikShell } from '../components/redesign/VetVikShell';
 
 export function AdminLayout() {
-  return <DashboardLayout role="admin" />;
+  return <VetVikShell role="admin" />;
 }

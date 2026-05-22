@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/VetVik.Api/VetVik.Api.csproj" />
+    <Project Path="src/VetVik.BuildingBlocks/VetVik.BuildingBlocks.csproj" />
+    <Project Path="src/VetVik.Modules/VetVik.Modules.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/VetVik.IntegrationTests/VetVik.IntegrationTests.csproj" />
+    <Project Path="tests/VetVik.UnitTests/VetVik.UnitTests.csproj" />
+  </Folder>
+</Solution>

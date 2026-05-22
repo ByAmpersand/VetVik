@@ -1,0 +1,61 @@
+# Visual Studio / Rider / .NET
+[Bb]in/
+[Oo]bj/
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.dbmdl
+*.dbproj.schemaview
+*.lock.json
+
+# .NET build outputs
+**/bin/
+**/obj/
+**/publish/
+**/out/
+*.pdb
+*.dll
+
+# Test results
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+coverage*.json
+
+# JetBrains
+*.iml
+*.ipr
+
+# Node / Vite
+**/node_modules/
+**/dist/
+**/.parcel-cache/
+**/.next/
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+.env
+.env.local
+.env.*.local
+
+# Docker / SQL Server
+.docker/
+*.bak
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# Logs
+*.log
+logs/
+
+# EF Core
+**/Migrations/**/*.local.cs
