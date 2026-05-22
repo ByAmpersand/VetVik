@@ -9,7 +9,6 @@ public sealed class CreateAppointmentRequestValidator : AbstractValidator<Create
     {
         RuleFor(x => x.PetId).NotEmpty();
         RuleFor(x => x.DoctorId).NotEmpty();
-        RuleFor(x => x.RoomId).NotEmpty();
         RuleFor(x => x.ServiceId).NotEmpty();
         RuleFor(x => x.StartAt).NotEmpty();
         RuleFor(x => x.EndAt).GreaterThan(x => x.StartAt).When(x => x.EndAt.HasValue);

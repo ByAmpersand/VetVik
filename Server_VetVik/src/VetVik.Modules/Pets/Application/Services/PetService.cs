@@ -15,27 +15,30 @@ internal sealed class PetService : IPetService
     public PetService(VetVikDbContext db, IClock clock) { _db = db; _clock = clock; }
 
     public async Task<IReadOnlyList<PetResponse>> GetAllAsync(CancellationToken ct) =>
-        await Query().ToListAsync(ct);
+        await Query(_db.Pets.AsNoTracking()).ToListAsync(ct);
 
     public async Task<IReadOnlyList<PetResponse>> GetByOwnerAsync(Guid ownerId, CancellationToken ct) =>
-        await Query().Where(p => p.OwnerId == ownerId).ToListAsync(ct);
+        await Query(_db.Pets.AsNoTracking().Where(p => p.OwnerId == ownerId)).ToListAsync(ct);
 
     public async Task<IReadOnlyList<PetResponse>> GetForCurrentOwnerAsync(string userId, CancellationToken ct)
     {
         var owner = await _db.OwnerProfiles.AsNoTracking().FirstOrDefaultAsync(o => o.UserId == userId, ct)
             ?? throw new NotFoundException("OwnerProfile", userId);
-        return await Query().Where(p => p.OwnerId == owner.Id).ToListAsync(ct);
+        return await Query(_db.Pets.AsNoTracking().Where(p => p.OwnerId == owner.Id)).ToListAsync(ct);
     }
 
     public async Task<PetResponse> GetAsync(Guid id, CancellationToken ct)
     {
-        var p = await Query().FirstOrDefaultAsync(x => x.Id == id, ct)
+        var p = await Query(_db.Pets.AsNoTracking().Where(p => p.Id == id)).FirstOrDefaultAsync(ct)
             ?? throw new NotFoundException("Pet", id);
         return p;
     }
 
     public async Task<PetResponse> CreateAsync(UpsertPetRequest r, CancellationToken ct)
     {
+        if (r.OwnerId == Guid.Empty)
+            throw new BusinessRuleException("Owner is required.");
+
         await EnsureValidReferencesAsync(r, ct);
         var pet = new Pet
         {
@@ -54,12 +57,21 @@ internal sealed class PetService : IPetService
         return await GetAsync(pet.Id, ct);
     }
 
-    public async Task<PetResponse> CreateForCurrentOwnerAsync(string userId, UpsertPetRequest r, CancellationToken ct)
+    public async Task<PetResponse> CreateForCurrentOwnerAsync(string userId, CreatePetMineRequest r, CancellationToken ct)
     {
         var owner = await _db.OwnerProfiles.AsNoTracking().FirstOrDefaultAsync(o => o.UserId == userId, ct)
             ?? throw new NotFoundException("OwnerProfile", userId);
 
-        var fixedReq = r with { OwnerId = owner.Id };
+        var fixedReq = new UpsertPetRequest(
+            owner.Id,
+            r.SpeciesId,
+            r.BreedId,
+            r.Name,
+            r.Sex,
+            r.BirthDate,
+            r.Weight,
+            r.PhotoUrl,
+            r.Notes);
         return await CreateAsync(fixedReq, ct);
     }
 
@@ -116,11 +128,8 @@ internal sealed class PetService : IPetService
         }
     }
 
-    private IQueryable<PetResponse> Query() =>
-        _db.Pets.AsNoTracking()
-            .Include(p => p.Owner)
-            .Include(p => p.Species)
-            .Include(p => p.Breed)
+    private IQueryable<PetResponse> Query(IQueryable<Pet> pets) =>
+        pets
             .OrderBy(p => p.Name)
             .Select(p => new PetResponse(
                 p.Id,

@@ -24,7 +24,7 @@ public sealed class AnimalSpeciesController : ControllerBase
     public Task<AnimalSpeciesResponse> Get(Guid id, CancellationToken ct) => _service.GetAsync(id, ct);
 
     [HttpPost]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public async Task<ActionResult<AnimalSpeciesResponse>> Create(
         [FromBody] UpsertAnimalSpeciesRequest req, CancellationToken ct)
     {
@@ -33,12 +33,12 @@ public sealed class AnimalSpeciesController : ControllerBase
     }
 
     [HttpPut("{id:guid}")]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public Task<AnimalSpeciesResponse> Update(Guid id, [FromBody] UpsertAnimalSpeciesRequest req, CancellationToken ct) =>
         _service.UpdateAsync(id, req, ct);
 
     [HttpDelete("{id:guid}")]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
         await _service.DeleteAsync(id, ct);
@@ -63,7 +63,7 @@ public sealed class BreedsController : ControllerBase
     public Task<BreedResponse> Get(Guid id, CancellationToken ct) => _service.GetAsync(id, ct);
 
     [HttpPost]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public async Task<ActionResult<BreedResponse>> Create([FromBody] UpsertBreedRequest req, CancellationToken ct)
     {
         var x = await _service.CreateAsync(req, ct);
@@ -71,12 +71,12 @@ public sealed class BreedsController : ControllerBase
     }
 
     [HttpPut("{id:guid}")]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public Task<BreedResponse> Update(Guid id, [FromBody] UpsertBreedRequest req, CancellationToken ct) =>
         _service.UpdateAsync(id, req, ct);
 
     [HttpDelete("{id:guid}")]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
         await _service.DeleteAsync(id, ct);
@@ -120,7 +120,7 @@ public sealed class PetsController : ControllerBase
     public Task<PetResponse> Get(Guid id, CancellationToken ct) => _service.GetAsync(id, ct);
 
     [HttpPost]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public async Task<ActionResult<PetResponse>> Create([FromBody] UpsertPetRequest req, CancellationToken ct)
     {
         var x = await _service.CreateAsync(req, ct);
@@ -129,7 +129,7 @@ public sealed class PetsController : ControllerBase
 
     [HttpPost("mine")]
     [Authorize(Roles = Roles.Owner)]
-    public async Task<ActionResult<PetResponse>> CreateMine([FromBody] UpsertPetRequest req, CancellationToken ct)
+    public async Task<ActionResult<PetResponse>> CreateMine([FromBody] CreatePetMineRequest req, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(_currentUser.UserId)) throw new ForbiddenException("Authentication required.");
         var x = await _service.CreateForCurrentOwnerAsync(_currentUser.UserId, req, ct);
@@ -142,7 +142,7 @@ public sealed class PetsController : ControllerBase
         _service.UpdateAsync(id, req, ct);
 
     [HttpDelete("{id:guid}")]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
         await _service.DeleteAsync(id, ct);

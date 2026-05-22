@@ -17,16 +17,21 @@ internal sealed class MedicalRecordService : IMedicalRecordService
 
     public async Task<MedicalRecordResponse> GetAsync(Guid id, CancellationToken ct)
     {
-        var r = await BaseQuery().FirstOrDefaultAsync(x => x.Id == id, ct)
+        var r = await BaseQuery(_db.MedicalRecords.AsNoTracking().Where(m => m.Id == id)).FirstOrDefaultAsync(ct)
             ?? throw new NotFoundException("MedicalRecord", id);
         return r;
     }
 
     public async Task<MedicalRecordResponse?> GetByAppointmentAsync(Guid appointmentId, CancellationToken ct) =>
-        await BaseQuery().FirstOrDefaultAsync(r => r.AppointmentId == appointmentId, ct);
+        await BaseQuery(_db.MedicalRecords.AsNoTracking().Where(m => m.AppointmentId == appointmentId))
+            .FirstOrDefaultAsync(ct);
 
     public async Task<IReadOnlyList<MedicalRecordResponse>> GetByPetAsync(Guid petId, CancellationToken ct) =>
-        await BaseQuery().Where(r => r.PetId == petId).OrderByDescending(r => r.AppointmentDate).ToListAsync(ct);
+        await BaseQuery(
+            _db.MedicalRecords.AsNoTracking()
+                .Where(r => r.PetId == petId)
+                .OrderByDescending(r => r.Appointment!.StartAt))
+            .ToListAsync(ct);
 
     public async Task<MedicalRecordResponse> CreateAsync(CreateMedicalRecordRequest r, CancellationToken ct)
     {
@@ -69,12 +74,8 @@ internal sealed class MedicalRecordService : IMedicalRecordService
         return await GetAsync(record.Id, ct);
     }
 
-    private IQueryable<MedicalRecordResponse> BaseQuery() =>
-        _db.MedicalRecords.AsNoTracking()
-            .Include(m => m.Appointment)
-            .Include(m => m.Pet)
-            .Include(m => m.Doctor)
-            .Select(m => new MedicalRecordResponse(
+    private IQueryable<MedicalRecordResponse> BaseQuery(IQueryable<MedicalRecord> records) =>
+        records.Select(m => new MedicalRecordResponse(
                 m.Id,
                 m.AppointmentId,
                 m.Appointment!.StartAt,

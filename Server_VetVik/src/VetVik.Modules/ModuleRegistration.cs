@@ -16,6 +16,9 @@ public static class ModuleRegistration
     {
         // Identity
         services.AddScoped<IIdentityService, IdentityService>();
+        services.AddScoped<IStaffService, StaffService>();
+        services.AddScoped<IClientDirectoryService, ClientDirectoryService>();
+        services.AddScoped<IAnalyticsService, AnalyticsService>();
 
         // Clinic
         services.AddScoped<IClinicService, ClinicService>();
@@ -24,6 +27,7 @@ public static class ModuleRegistration
         services.AddScoped<IAnimalSpeciesService, AnimalSpeciesService>();
         services.AddScoped<IBreedService, BreedService>();
         services.AddScoped<IPetService, PetService>();
+        services.AddScoped<IVaccinationService, VaccinationService>();
 
         // Doctors
         services.AddScoped<IDoctorService, DoctorService>();

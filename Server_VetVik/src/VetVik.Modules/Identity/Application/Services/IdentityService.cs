@@ -102,7 +102,7 @@ internal sealed class IdentityService : IIdentityService
             var p = await _db.DoctorProfiles.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == user.Id, ct);
             if (p is not null) { profileId = p.Id; first = p.FirstName; last = p.LastName; }
         }
-        else if (roles.Contains(Roles.Admin))
+        else if (roles.Contains(Roles.Admin) || roles.Contains(Roles.SuperAdmin))
         {
             var p = await _db.AdminProfiles.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == user.Id, ct);
             if (p is not null) { profileId = p.Id; first = p.FirstName; last = p.LastName; }

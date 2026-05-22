@@ -1,0 +1,12 @@
+[
+  {
+    "Name": "VetVik.Api (Swagger)",
+    "Projects": [
+      {
+        "Path": "src\\VetVik.Api\\VetVik.Api.csproj",
+        "Action": "Start",
+        "DebugTarget": "VetVik.Api (Swagger)"
+      }
+    ]
+  }
+]

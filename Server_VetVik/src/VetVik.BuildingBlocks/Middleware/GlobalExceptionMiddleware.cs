@@ -1,5 +1,7 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using VetVik.BuildingBlocks.Application;
 using VetVik.BuildingBlocks.Application.Exceptions;
@@ -12,11 +14,16 @@ public sealed class GlobalExceptionMiddleware
 
     private readonly RequestDelegate _next;
     private readonly ILogger<GlobalExceptionMiddleware> _logger;
+    private readonly IWebHostEnvironment _environment;
 
-    public GlobalExceptionMiddleware(RequestDelegate next, ILogger<GlobalExceptionMiddleware> logger)
+    public GlobalExceptionMiddleware(
+        RequestDelegate next,
+        ILogger<GlobalExceptionMiddleware> logger,
+        IWebHostEnvironment environment)
     {
         _next = next;
         _logger = logger;
+        _environment = environment;
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -75,7 +82,9 @@ public sealed class GlobalExceptionMiddleware
             {
                 Status = StatusCodes.Status500InternalServerError,
                 Title = "Internal server error",
-                Detail = "An unexpected error occurred.",
+                Detail = _environment.IsDevelopment()
+                    ? ex.Message
+                    : "An unexpected error occurred.",
                 TraceId = context.TraceIdentifier
             })
         };

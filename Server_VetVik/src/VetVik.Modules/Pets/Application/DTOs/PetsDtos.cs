@@ -25,6 +25,17 @@ public sealed record PetResponse(
     DateTime CreatedAt,
     DateTime? UpdatedAt);
 
+/// <summary>Owner creates a pet for themselves; owner id is resolved from the JWT.</summary>
+public sealed record CreatePetMineRequest(
+    Guid SpeciesId,
+    Guid? BreedId,
+    string Name,
+    PetSex Sex,
+    DateOnly? BirthDate,
+    decimal? Weight,
+    string? PhotoUrl,
+    string? Notes);
+
 public sealed record UpsertPetRequest(
     Guid OwnerId,
     Guid SpeciesId,

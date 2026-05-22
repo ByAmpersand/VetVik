@@ -30,6 +30,7 @@ public class VetVikDbContext : IdentityDbContext<ApplicationUser, IdentityRole, 
     public DbSet<AnimalSpecies> AnimalSpecies => Set<AnimalSpecies>();
     public DbSet<Breed> Breeds => Set<Breed>();
     public DbSet<Pet> Pets => Set<Pet>();
+    public DbSet<Vaccination> Vaccinations => Set<Vaccination>();
 
     // Doctors
     public DbSet<Specialization> Specializations => Set<Specialization>();

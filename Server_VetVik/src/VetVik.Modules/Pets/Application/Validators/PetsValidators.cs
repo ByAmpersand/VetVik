@@ -21,6 +21,19 @@ public sealed class UpsertBreedRequestValidator : AbstractValidator<UpsertBreedR
     }
 }
 
+public sealed class CreatePetMineRequestValidator : AbstractValidator<CreatePetMineRequest>
+{
+    public CreatePetMineRequestValidator()
+    {
+        RuleFor(x => x.SpeciesId).NotEmpty();
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(100);
+        RuleFor(x => x.Weight).GreaterThan(0).When(x => x.Weight.HasValue);
+        RuleFor(x => x.PhotoUrl).MaximumLength(500);
+        RuleFor(x => x.Notes).MaximumLength(1000);
+        RuleFor(x => x.Sex).IsInEnum();
+    }
+}
+
 public sealed class UpsertPetRequestValidator : AbstractValidator<UpsertPetRequest>
 {
     public UpsertPetRequestValidator()

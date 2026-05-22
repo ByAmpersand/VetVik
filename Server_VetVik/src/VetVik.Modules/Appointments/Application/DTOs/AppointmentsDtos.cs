@@ -32,7 +32,7 @@ public sealed record AppointmentResponse(
 public sealed record CreateAppointmentRequest(
     Guid PetId,
     Guid DoctorId,
-    Guid RoomId,
+    Guid? RoomId,
     Guid ServiceId,
     DateTime StartAt,
     DateTime? EndAt,

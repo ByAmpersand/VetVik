@@ -27,7 +27,7 @@ public interface IPetService
     Task<IReadOnlyList<PetResponse>> GetForCurrentOwnerAsync(string userId, CancellationToken ct);
     Task<PetResponse> GetAsync(Guid id, CancellationToken ct);
     Task<PetResponse> CreateAsync(UpsertPetRequest req, CancellationToken ct);
-    Task<PetResponse> CreateForCurrentOwnerAsync(string userId, UpsertPetRequest req, CancellationToken ct);
+    Task<PetResponse> CreateForCurrentOwnerAsync(string userId, CreatePetMineRequest req, CancellationToken ct);
     Task<PetResponse> UpdateAsync(Guid id, UpsertPetRequest req, CancellationToken ct);
     Task DeleteAsync(Guid id, CancellationToken ct);
 }

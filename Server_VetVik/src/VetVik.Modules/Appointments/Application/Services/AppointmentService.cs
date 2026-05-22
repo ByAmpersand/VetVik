@@ -18,13 +18,17 @@ internal sealed class AppointmentService : IAppointmentService
 
     public async Task<AppointmentResponse> GetAsync(Guid id, CancellationToken ct)
     {
-        var a = await BaseQuery().FirstOrDefaultAsync(x => x.Id == id, ct)
+        var a = await BaseQuery(_db.Appointments.AsNoTracking().Where(a => a.Id == id)).FirstOrDefaultAsync(ct)
             ?? throw new NotFoundException("Appointment", id);
         return a;
     }
 
     public async Task<IReadOnlyList<AppointmentResponse>> GetByOwnerAsync(Guid ownerId, CancellationToken ct) =>
-        await BaseQuery().Where(a => a.OwnerId == ownerId).OrderByDescending(a => a.StartAt).ToListAsync(ct);
+        await BaseQuery(
+            _db.Appointments.AsNoTracking()
+                .Where(a => a.OwnerId == ownerId)
+                .OrderByDescending(a => a.StartAt))
+            .ToListAsync(ct);
 
     public async Task<IReadOnlyList<AppointmentResponse>> GetForCurrentOwnerAsync(string userId, CancellationToken ct)
     {
@@ -34,7 +38,11 @@ internal sealed class AppointmentService : IAppointmentService
     }
 
     public async Task<IReadOnlyList<AppointmentResponse>> GetByDoctorAsync(Guid doctorId, CancellationToken ct) =>
-        await BaseQuery().Where(a => a.DoctorId == doctorId).OrderByDescending(a => a.StartAt).ToListAsync(ct);
+        await BaseQuery(
+            _db.Appointments.AsNoTracking()
+                .Where(a => a.DoctorId == doctorId)
+                .OrderByDescending(a => a.StartAt))
+            .ToListAsync(ct);
 
     public async Task<IReadOnlyList<AppointmentResponse>> GetForCurrentDoctorAsync(string userId, CancellationToken ct)
     {
@@ -48,10 +56,10 @@ internal sealed class AppointmentService : IAppointmentService
     {
         if (to <= from) throw new BusinessRuleException("Range 'to' must be greater than 'from'.");
 
-        var q = BaseQuery().Where(a => a.StartAt < to && a.EndAt > from);
+        var q = _db.Appointments.AsNoTracking().Where(a => a.StartAt < to && a.EndAt > from);
         if (doctorId.HasValue) q = q.Where(a => a.DoctorId == doctorId.Value);
         if (roomId.HasValue) q = q.Where(a => a.RoomId == roomId.Value);
-        return await q.OrderBy(a => a.StartAt).ToListAsync(ct);
+        return await BaseQuery(q.OrderBy(a => a.StartAt)).ToListAsync(ct);
     }
 
     public Task<IReadOnlyList<AppointmentResponse>> GetCalendarAsync(DateTime from, DateTime to, CancellationToken ct)
@@ -71,20 +79,19 @@ internal sealed class AppointmentService : IAppointmentService
         if (!await _db.DoctorProfiles.AnyAsync(d => d.Id == r.DoctorId && d.IsActive, ct))
             throw new NotFoundException("DoctorProfile", r.DoctorId);
 
-        if (!await _db.Rooms.AnyAsync(rm => rm.Id == r.RoomId && rm.IsActive, ct))
-            throw new NotFoundException("Room", r.RoomId);
-
         var startAt = r.StartAt;
         var endAt = r.EndAt ?? startAt.AddMinutes(service.DurationMinutes);
 
-        await EnsureBookingIsLegalAsync(r.DoctorId, r.RoomId, startAt, endAt, excludeAppointmentId: null, ct);
+        var roomId = await ResolveRoomIdAsync(r.RoomId, startAt, endAt, actingIsOwner, ct);
+
+        await EnsureBookingIsLegalAsync(r.DoctorId, roomId, startAt, endAt, excludeAppointmentId: null, ct);
 
         var entity = new Appointment
         {
             OwnerId = ownerId,
             PetId = r.PetId,
             DoctorId = r.DoctorId,
-            RoomId = r.RoomId,
+            RoomId = roomId,
             ServiceId = r.ServiceId,
             StartAt = startAt,
             EndAt = endAt,
@@ -248,14 +255,55 @@ internal sealed class AppointmentService : IAppointmentService
             throw new ConflictException("Room is already booked in this time slot.");
     }
 
-    private IQueryable<AppointmentResponse> BaseQuery() =>
-        _db.Appointments.AsNoTracking()
-            .Include(a => a.Owner)
-            .Include(a => a.Pet).ThenInclude(p => p!.Species)
-            .Include(a => a.Doctor)
-            .Include(a => a.Room)
-            .Include(a => a.Service)
-            .Select(a => new AppointmentResponse(
+    private async Task<Guid> ResolveRoomIdAsync(
+        Guid? requestedRoomId, DateTime startAt, DateTime endAt, bool actingIsOwner, CancellationToken ct)
+    {
+        if (requestedRoomId.HasValue && requestedRoomId.Value != Guid.Empty)
+        {
+            if (!await _db.Rooms.AnyAsync(rm => rm.Id == requestedRoomId.Value && rm.IsActive, ct))
+                throw new NotFoundException("Room", requestedRoomId.Value);
+            return requestedRoomId.Value;
+        }
+
+        if (!actingIsOwner)
+            throw new BusinessRuleException("Room is required for clinic scheduling.");
+
+        return await FindAvailableRoomAsync(startAt, endAt, ct);
+    }
+
+    private async Task<Guid> FindAvailableRoomAsync(DateTime startAt, DateTime endAt, CancellationToken ct)
+    {
+        var activeRooms = await _db.Rooms.AsNoTracking()
+            .Where(r => r.IsActive)
+            .OrderBy(r => r.Name)
+            .ToListAsync(ct);
+
+        if (activeRooms.Count == 0)
+            throw new BusinessRuleException("No exam rooms are available for booking.");
+
+        var blockingStatuses = new[]
+        {
+            AppointmentStatus.Scheduled,
+            AppointmentStatus.Confirmed,
+            AppointmentStatus.Completed
+        };
+
+        foreach (var room in activeRooms)
+        {
+            var roomConflict = await _db.Appointments.AsNoTracking().AnyAsync(a =>
+                a.RoomId == room.Id
+                && blockingStatuses.Contains(a.Status)
+                && a.StartAt < endAt
+                && a.EndAt > startAt, ct);
+            if (!roomConflict)
+                return room.Id;
+        }
+
+        throw new ConflictException("No exam room is free for the selected time slot.");
+    }
+
+    private IQueryable<AppointmentResponse> BaseQuery(IQueryable<Appointment> appointments) =>
+        appointments.Select(a => new AppointmentResponse(
                 a.Id,
                 a.OwnerId,
                 (a.Owner!.FirstName + " " + a.Owner.LastName).Trim(),

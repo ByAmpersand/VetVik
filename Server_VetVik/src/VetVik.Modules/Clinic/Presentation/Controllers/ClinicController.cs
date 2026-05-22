@@ -19,7 +19,7 @@ public sealed class ClinicController : ControllerBase
     public Task<ClinicSettingsResponse> GetSettings(CancellationToken ct) => _clinic.GetSettingsAsync(ct);
 
     [HttpPut("settings")]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public Task<ClinicSettingsResponse> UpdateSettings(
         [FromBody] UpdateClinicSettingsRequest request, CancellationToken ct) =>
         _clinic.UpdateSettingsAsync(request, ct);
@@ -30,7 +30,7 @@ public sealed class ClinicController : ControllerBase
         _clinic.GetWorkingHoursAsync(ct);
 
     [HttpPut("working-hours")]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public Task<IReadOnlyList<ClinicWorkingHourResponse>> ReplaceWorkingHours(
         [FromBody] IReadOnlyList<UpsertClinicWorkingHourRequest> requests, CancellationToken ct) =>
         _clinic.ReplaceWorkingHoursAsync(requests, ct);
@@ -53,7 +53,7 @@ public sealed class RoomsController : ControllerBase
     public Task<RoomResponse> Get(Guid id, CancellationToken ct) => _clinic.GetRoomAsync(id, ct);
 
     [HttpPost]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public async Task<ActionResult<RoomResponse>> Create([FromBody] UpsertRoomRequest req, CancellationToken ct)
     {
         var created = await _clinic.CreateRoomAsync(req, ct);
@@ -61,12 +61,12 @@ public sealed class RoomsController : ControllerBase
     }
 
     [HttpPut("{id:guid}")]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public Task<RoomResponse> Update(Guid id, [FromBody] UpsertRoomRequest req, CancellationToken ct) =>
         _clinic.UpdateRoomAsync(id, req, ct);
 
     [HttpDelete("{id:guid}")]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
         await _clinic.DeleteRoomAsync(id, ct);

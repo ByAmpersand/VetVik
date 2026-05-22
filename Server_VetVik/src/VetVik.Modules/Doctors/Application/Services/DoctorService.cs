@@ -25,7 +25,8 @@ internal sealed class DoctorService : IDoctorService
     {
         var q = _db.DoctorProfiles.AsNoTracking()
             .Include(d => d.User)
-            .Include("DoctorSpecializations.Specialization")
+            .Include(d => d.DoctorSpecializations)
+            .ThenInclude(ds => ds.Specialization)
             .AsQueryable();
 
         if (!includeInactive) q = q.Where(d => d.IsActive);
@@ -152,15 +153,14 @@ internal sealed class DoctorService : IDoctorService
     private async Task<DoctorProfile> LoadAsync(Guid id, CancellationToken ct) =>
         await _db.DoctorProfiles
             .Include(d => d.User)
-            .Include("DoctorSpecializations.Specialization")
+            .Include(d => d.DoctorSpecializations)
+            .ThenInclude(ds => ds.Specialization)
             .FirstOrDefaultAsync(d => d.Id == id, ct)
             ?? throw new NotFoundException("DoctorProfile", id);
 
-    private DoctorResponse ToResponse(DoctorProfile d)
+    private static DoctorResponse ToResponse(DoctorProfile d)
     {
-        var specs = _db.DoctorSpecializations
-            .Where(ds => ds.DoctorId == d.Id)
-            .Include(ds => ds.Specialization)
+        var specs = d.DoctorSpecializations
             .Select(ds => new SpecializationResponse(
                 ds.Specialization!.Id, ds.Specialization.Name, ds.Specialization.Description, ds.Specialization.IsActive))
             .ToList();

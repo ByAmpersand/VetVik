@@ -23,7 +23,7 @@ public sealed class ServiceCategoriesController : ControllerBase
     public Task<ServiceCategoryResponse> Get(Guid id, CancellationToken ct) => _service.GetAsync(id, ct);
 
     [HttpPost]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public async Task<ActionResult<ServiceCategoryResponse>> Create(
         [FromBody] UpsertServiceCategoryRequest req, CancellationToken ct)
     {
@@ -32,13 +32,13 @@ public sealed class ServiceCategoriesController : ControllerBase
     }
 
     [HttpPut("{id:guid}")]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public Task<ServiceCategoryResponse> Update(
         Guid id, [FromBody] UpsertServiceCategoryRequest req, CancellationToken ct) =>
         _service.UpdateAsync(id, req, ct);
 
     [HttpDelete("{id:guid}")]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
         await _service.DeleteAsync(id, ct);
@@ -65,7 +65,7 @@ public sealed class ServicesController : ControllerBase
     public Task<ServiceResponse> Get(Guid id, CancellationToken ct) => _service.GetAsync(id, ct);
 
     [HttpPost]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public async Task<ActionResult<ServiceResponse>> Create([FromBody] UpsertServiceRequest req, CancellationToken ct)
     {
         var x = await _service.CreateAsync(req, ct);
@@ -73,12 +73,12 @@ public sealed class ServicesController : ControllerBase
     }
 
     [HttpPut("{id:guid}")]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public Task<ServiceResponse> Update(Guid id, [FromBody] UpsertServiceRequest req, CancellationToken ct) =>
         _service.UpdateAsync(id, req, ct);
 
     [HttpDelete("{id:guid}")]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
         await _service.DeleteAsync(id, ct);

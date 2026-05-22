@@ -4,6 +4,7 @@ public sealed class SeedSettings
 {
     public const string SectionName = "Seed";
 
+    public SeedUser SuperAdmin { get; set; } = new();
     public SeedUser Admin { get; set; } = new();
     public SeedUser Doctor { get; set; } = new();
     public SeedUser Owner { get; set; } = new();

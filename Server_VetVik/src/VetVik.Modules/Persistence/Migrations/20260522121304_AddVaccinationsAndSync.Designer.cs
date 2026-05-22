@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using VetVik.Modules.Persistence;
 
@@ -11,9 +12,11 @@ using VetVik.Modules.Persistence;
 namespace VetVik.Modules.Persistence.Migrations
 {
     [DbContext(typeof(VetVikDbContext))]
-    partial class VetVikDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260522121304_AddVaccinationsAndSync")]
+    partial class AddVaccinationsAndSync
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

@@ -30,7 +30,7 @@ public sealed class DoctorsController : ControllerBase
     public Task<DoctorResponse> Get(Guid id, CancellationToken ct) => _service.GetAsync(id, ct);
 
     [HttpPost]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public async Task<ActionResult<DoctorResponse>> Create([FromBody] CreateDoctorRequest req, CancellationToken ct)
     {
         var x = await _service.CreateAsync(req, ct);
@@ -38,12 +38,12 @@ public sealed class DoctorsController : ControllerBase
     }
 
     [HttpPut("{id:guid}")]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public Task<DoctorResponse> Update(Guid id, [FromBody] UpdateDoctorRequest req, CancellationToken ct) =>
         _service.UpdateAsync(id, req, ct);
 
     [HttpDelete("{id:guid}")]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
         await _service.DeleteAsync(id, ct);
@@ -51,12 +51,12 @@ public sealed class DoctorsController : ControllerBase
     }
 
     [HttpPost("{id:guid}/specializations/{specializationId:guid}")]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public Task<DoctorResponse> AssignSpecialization(Guid id, Guid specializationId, CancellationToken ct) =>
         _service.AssignSpecializationAsync(id, specializationId, ct);
 
     [HttpDelete("{id:guid}/specializations/{specializationId:guid}")]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public Task<DoctorResponse> RemoveSpecialization(Guid id, Guid specializationId, CancellationToken ct) =>
         _service.RemoveSpecializationAsync(id, specializationId, ct);
 
@@ -88,7 +88,7 @@ public sealed class SpecializationsController : ControllerBase
     public Task<SpecializationResponse> Get(Guid id, CancellationToken ct) => _service.GetAsync(id, ct);
 
     [HttpPost]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public async Task<ActionResult<SpecializationResponse>> Create(
         [FromBody] UpsertSpecializationRequest req, CancellationToken ct)
     {
@@ -97,13 +97,13 @@ public sealed class SpecializationsController : ControllerBase
     }
 
     [HttpPut("{id:guid}")]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public Task<SpecializationResponse> Update(
         Guid id, [FromBody] UpsertSpecializationRequest req, CancellationToken ct) =>
         _service.UpdateAsync(id, req, ct);
 
     [HttpDelete("{id:guid}")]
-    [Authorize(Roles = Roles.Admin)]
+    [Authorize(Roles = Roles.ClinicAdmin)]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
         await _service.DeleteAsync(id, ct);

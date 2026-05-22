@@ -12,7 +12,7 @@ public class DoctorSpecializationConfiguration : IEntityTypeConfiguration<Doctor
         b.HasKey(x => new { x.DoctorId, x.SpecializationId });
 
         b.HasOne(x => x.Doctor)
-         .WithMany()
+         .WithMany(x => x.DoctorSpecializations)
          .HasForeignKey(x => x.DoctorId)
          .OnDelete(DeleteBehavior.Cascade);
 
