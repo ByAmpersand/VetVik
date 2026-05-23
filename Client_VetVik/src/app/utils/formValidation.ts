@@ -85,7 +85,7 @@ export function formatApiError(error: unknown, fallback = 'Something went wrong.
 
   if (error.status === 409) return 'An account with this email already exists.';
   if (error.status === 400) return 'Please check the form and try again.';
-  if (error.status === 401) return 'Invalid email or password.';
+  if (error.status === 401 || error.status === 422) return 'Invalid email or password.';
   if (error.status >= 500) return 'Server error. Please try again in a moment.';
 
   return fallback;

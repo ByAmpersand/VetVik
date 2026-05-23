@@ -89,12 +89,14 @@ builder.Services
         o.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     });
 
-// CORS for Vite dev server (Client_VetVik)
+// CORS for Vite dev server (Client_VetVik). Origins are configurable via Cors:AllowedOrigins.
+var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?? ["http://localhost:5173", "http://127.0.0.1:5173"];
+
 builder.Services.AddCors(o => o.AddPolicy("frontend", p => p
-    .WithOrigins("http://localhost:5173", "http://127.0.0.1:5173")
+    .WithOrigins(corsOrigins)
     .AllowAnyMethod()
-    .AllowAnyHeader()
-    .AllowCredentials()));
+    .AllowAnyHeader()));
 
 // Swagger
 builder.Services.AddEndpointsApiExplorer();
@@ -133,7 +135,10 @@ if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == "Testi
     app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "VetVik API v1"));
 }
 
-app.UseHttpsRedirection();
+// HTTPS redirect breaks CORS preflight when the frontend calls http://localhost:5071 directly.
+if (!app.Environment.IsDevelopment())
+    app.UseHttpsRedirection();
+
 app.UseCors("frontend");
 app.UseAuthentication();
 app.UseAuthorization();

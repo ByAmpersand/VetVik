@@ -99,7 +99,7 @@ public sealed class PetsController : ControllerBase
     }
 
     [HttpGet]
-    [Authorize(Roles = $"{Roles.Admin},{Roles.Doctor}")]
+    [Authorize(Roles = $"{Roles.ClinicAdmin},{Roles.Doctor}")]
     public Task<IReadOnlyList<PetResponse>> GetAll(CancellationToken ct) => _service.GetAllAsync(ct);
 
     /// <summary>Pets visible to the current authenticated owner.</summary>
@@ -112,7 +112,7 @@ public sealed class PetsController : ControllerBase
     }
 
     [HttpGet("by-owner/{ownerId:guid}")]
-    [Authorize(Roles = $"{Roles.Admin},{Roles.Doctor}")]
+    [Authorize(Roles = $"{Roles.ClinicAdmin},{Roles.Doctor}")]
     public Task<IReadOnlyList<PetResponse>> ByOwner(Guid ownerId, CancellationToken ct) =>
         _service.GetByOwnerAsync(ownerId, ct);
 
@@ -137,7 +137,7 @@ public sealed class PetsController : ControllerBase
     }
 
     [HttpPut("{id:guid}")]
-    [Authorize(Roles = $"{Roles.Admin},{Roles.Owner}")]
+    [Authorize(Roles = $"{Roles.ClinicAdmin},{Roles.Owner}")]
     public Task<PetResponse> Update(Guid id, [FromBody] UpsertPetRequest req, CancellationToken ct) =>
         _service.UpdateAsync(id, req, ct);
 

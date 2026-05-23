@@ -25,12 +25,12 @@ public sealed class AppointmentsController : ControllerBase
     public Task<AppointmentResponse> Get(Guid id, CancellationToken ct) => _service.GetAsync(id, ct);
 
     [HttpGet("by-owner/{ownerId:guid}")]
-    [Authorize(Roles = $"{Roles.Admin},{Roles.Doctor}")]
+    [Authorize(Roles = $"{Roles.ClinicAdmin},{Roles.Doctor}")]
     public Task<IReadOnlyList<AppointmentResponse>> ByOwner(Guid ownerId, CancellationToken ct) =>
         _service.GetByOwnerAsync(ownerId, ct);
 
     [HttpGet("by-doctor/{doctorId:guid}")]
-    [Authorize(Roles = $"{Roles.Admin},{Roles.Doctor}")]
+    [Authorize(Roles = $"{Roles.ClinicAdmin},{Roles.Doctor}")]
     public Task<IReadOnlyList<AppointmentResponse>> ByDoctor(Guid doctorId, CancellationToken ct) =>
         _service.GetByDoctorAsync(doctorId, ct);
 
@@ -51,7 +51,7 @@ public sealed class AppointmentsController : ControllerBase
     }
 
     [HttpGet("range")]
-    [Authorize(Roles = $"{Roles.Admin},{Roles.Doctor}")]
+    [Authorize(Roles = $"{Roles.ClinicAdmin},{Roles.Doctor}")]
     public Task<IReadOnlyList<AppointmentResponse>> ByRange(
         [FromQuery] DateTime from,
         [FromQuery] DateTime to,
@@ -61,7 +61,7 @@ public sealed class AppointmentsController : ControllerBase
         _service.GetByDateRangeAsync(from, to, doctorId, roomId, ct);
 
     [HttpGet("calendar")]
-    [Authorize(Roles = $"{Roles.Admin},{Roles.Doctor}")]
+    [Authorize(Roles = $"{Roles.ClinicAdmin},{Roles.Doctor}")]
     public Task<IReadOnlyList<AppointmentResponse>> Calendar(
         [FromQuery] DateTime from, [FromQuery] DateTime to, CancellationToken ct) =>
         _service.GetCalendarAsync(from, to, ct);
@@ -70,13 +70,15 @@ public sealed class AppointmentsController : ControllerBase
     public async Task<ActionResult<AppointmentResponse>> Create(
         [FromBody] CreateAppointmentRequest req, CancellationToken ct)
     {
-        var actingIsOwner = _currentUser.IsInRole(Roles.Owner) && !_currentUser.IsInRole(Roles.Admin);
+        var actingIsOwner = _currentUser.IsInRole(Roles.Owner)
+            && !_currentUser.IsInRole(Roles.Admin)
+            && !_currentUser.IsInRole(Roles.SuperAdmin);
         var created = await _service.CreateAsync(req, _currentUser.UserId, actingIsOwner, ct);
         return CreatedAtAction(nameof(Get), new { id = created.Id }, created);
     }
 
     [HttpPut("{id:guid}")]
-    [Authorize(Roles = $"{Roles.Admin},{Roles.Doctor}")]
+    [Authorize(Roles = $"{Roles.ClinicAdmin},{Roles.Doctor}")]
     public Task<AppointmentResponse> Update(
         Guid id, [FromBody] UpdateAppointmentRequest req, CancellationToken ct) =>
         _service.UpdateAsync(id, req, ct);
@@ -87,7 +89,7 @@ public sealed class AppointmentsController : ControllerBase
         _service.CancelAsync(id, req, ct);
 
     [HttpPost("{id:guid}/complete")]
-    [Authorize(Roles = $"{Roles.Admin},{Roles.Doctor}")]
+    [Authorize(Roles = $"{Roles.ClinicAdmin},{Roles.Doctor}")]
     public Task<AppointmentResponse> Complete(Guid id, CancellationToken ct) =>
         _service.CompleteAsync(id, ct);
 }

@@ -65,7 +65,7 @@ public sealed class DoctorsController : ControllerBase
         _hours.GetForDoctorAsync(id, ct);
 
     [HttpPut("{id:guid}/working-hours")]
-    [Authorize(Roles = $"{Roles.Admin},{Roles.Doctor}")]
+    [Authorize(Roles = $"{Roles.ClinicAdmin},{Roles.Doctor}")]
     public Task<IReadOnlyList<DoctorWorkingHourResponse>> ReplaceWorkingHours(
         Guid id, [FromBody] IReadOnlyList<UpsertDoctorWorkingHourRequest> requests, CancellationToken ct) =>
         _hours.ReplaceForDoctorAsync(id, requests, ct);

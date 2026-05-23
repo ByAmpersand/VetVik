@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   analyticsApi,
   appointmentsApi,
@@ -97,8 +97,10 @@ export function useDoctorAppointments() {
 }
 
 export function useAdminAppointments(from?: string, to?: string) {
-  const rangeFrom = from ?? new Date(Date.now() - 30 * 86400000).toISOString();
-  const rangeTo = to ?? new Date(Date.now() + 30 * 86400000).toISOString();
+  const defaultFrom = useRef(from ?? new Date(Date.now() - 30 * 86400000).toISOString());
+  const defaultTo = useRef(to ?? new Date(Date.now() + 30 * 86400000).toISOString());
+  const rangeFrom = from ?? defaultFrom.current;
+  const rangeTo = to ?? defaultTo.current;
   return useAsync<AppointmentResponse[]>(
     () => appointmentsApi.calendar(rangeFrom, rangeTo),
     [],

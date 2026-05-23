@@ -114,10 +114,11 @@ On first run the seeder will:
 
 1. Run all pending migrations.
 2. Create roles **Admin**, **Doctor**, **Owner**.
-3. Create three seed users with profiles (credentials from `appsettings.Development.json`):
-   - `admin@vetvik.local` / `Admin#123`
-   - `doctor@vetvik.local` / `Doctor#123`
-   - `owner@vetvik.local` / `Owner#123`
+3. Create seed users with profiles (credentials from `appsettings.Development.json`):
+   - `super@vetvik.local` / `Super123`
+   - `admin@vetvik.local` / `Admin123`
+   - `doctor@vetvik.local` / `Doctor123`
+   - `anna@vetvik.local` / `Client123`
 4. Seed `ClinicSettings`, working hours, rooms, species/breeds, specializations, services, and two demo pets.
 
 ## 5. Open Swagger
@@ -129,7 +130,7 @@ Once the backend is running:
 
 To call protected endpoints from Swagger:
 
-1. `POST /api/auth/login` with `{ "email": "admin@vetvik.local", "password": "Admin#123" }`.
+1. `POST /api/auth/login` with `{ "email": "admin@vetvik.local", "password": "Admin123" }`.
 2. Copy the `accessToken` from the response.
 3. Click **Authorize** at the top right and paste the token (Swagger prefixes `Bearer ` automatically).
 

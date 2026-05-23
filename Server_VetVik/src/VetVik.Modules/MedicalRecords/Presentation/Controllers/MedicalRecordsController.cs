@@ -29,7 +29,7 @@ public sealed class MedicalRecordsController : ControllerBase
         _service.GetByPetAsync(petId, ct);
 
     [HttpPost]
-    [Authorize(Roles = $"{Roles.Admin},{Roles.Doctor}")]
+    [Authorize(Roles = $"{Roles.ClinicAdmin},{Roles.Doctor}")]
     public async Task<ActionResult<MedicalRecordResponse>> Create(
         [FromBody] CreateMedicalRecordRequest req, CancellationToken ct)
     {
@@ -38,7 +38,7 @@ public sealed class MedicalRecordsController : ControllerBase
     }
 
     [HttpPut("{id:guid}")]
-    [Authorize(Roles = $"{Roles.Admin},{Roles.Doctor}")]
+    [Authorize(Roles = $"{Roles.ClinicAdmin},{Roles.Doctor}")]
     public Task<MedicalRecordResponse> Update(
         Guid id, [FromBody] UpdateMedicalRecordRequest req, CancellationToken ct) =>
         _service.UpdateAsync(id, req, ct);

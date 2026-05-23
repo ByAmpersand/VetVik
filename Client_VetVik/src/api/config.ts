@@ -1,13 +1,13 @@
 /**
  * Runtime configuration for the VetVik API client.
  *
- * The base URL can be overridden via a Vite env variable:
- *   VITE_API_BASE_URL=http://localhost:5071
+ * In dev, requests go through the Vite proxy (`/api` → http://localhost:5071)
+ * so the browser stays same-origin and CORS is not required.
  *
- * If not set, defaults to the local backend launch profile in
- * Server_VetVik/src/VetVik.Api/Properties/launchSettings.json.
+ * Override with VITE_API_BASE_URL when calling the API directly, e.g.:
+ *   VITE_API_BASE_URL=http://localhost:5071
  */
-const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {};
+const env = import.meta.env;
 
 export const API_BASE_URL: string =
-  env.VITE_API_BASE_URL ?? "http://localhost:5071";
+  env.VITE_API_BASE_URL ?? (env.DEV ? "" : "http://localhost:5071");

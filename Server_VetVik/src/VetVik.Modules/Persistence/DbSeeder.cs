@@ -157,6 +157,16 @@ public static class DbSeeder
                     string.Join("; ", result.Errors.Select(e => e.Description)));
             logger.LogInformation("Created seed user {Email} for role {Role}", s.Email, role);
         }
+        else if (!await userManager.CheckPasswordAsync(user, s.Password))
+        {
+            var resetToken = await userManager.GeneratePasswordResetTokenAsync(user);
+            var reset = await userManager.ResetPasswordAsync(user, resetToken, s.Password);
+            if (!reset.Succeeded)
+                throw new InvalidOperationException(
+                    $"Failed to sync seed password for {s.Email}: " +
+                    string.Join("; ", reset.Errors.Select(e => e.Description)));
+            logger.LogInformation("Synced seed password for {Email}", s.Email);
+        }
 
         if (!await userManager.IsInRoleAsync(user, role))
             await userManager.AddToRoleAsync(user, role);

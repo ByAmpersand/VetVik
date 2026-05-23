@@ -27,8 +27,18 @@ interface RequestOptions extends Omit<RequestInit, "body"> {
   anonymous?: boolean;
 }
 
+function resolveBaseUrl(): string {
+  if (API_BASE_URL) {
+    return API_BASE_URL.endsWith("/") ? API_BASE_URL : `${API_BASE_URL}/`;
+  }
+  if (typeof window !== "undefined") {
+    return `${window.location.origin}/`;
+  }
+  return "http://localhost:5173/";
+}
+
 function buildUrl(path: string, query?: RequestOptions["query"]): string {
-  const url = new URL(path.replace(/^\//, ""), API_BASE_URL.endsWith("/") ? API_BASE_URL : `${API_BASE_URL}/`);
+  const url = new URL(path.replace(/^\//, ""), resolveBaseUrl());
   if (query) {
     for (const [k, v] of Object.entries(query)) {
       if (v === undefined || v === null) continue;
