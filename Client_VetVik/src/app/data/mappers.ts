@@ -38,6 +38,7 @@ export interface AppointmentViewModel {
   petId: string;
   petName: string;
   petSpecies: string;
+  petPhotoUrl?: string | null;
   ownerId: string;
   ownerName: string;
   ownerPhone: string;
@@ -92,6 +93,30 @@ export interface VaccinationViewModel {
   administeredBy: string;
 }
 
+export function buildLastVisitByPetId(
+  records: MedicalRecordResponse[],
+  appointments: AppointmentResponse[] = [],
+): Map<string, string> {
+  const lastVisitByPetId = new Map<string, string>();
+
+  for (const record of records) {
+    const existing = lastVisitByPetId.get(record.petId);
+    if (!existing || record.appointmentDate.localeCompare(existing) > 0) {
+      lastVisitByPetId.set(record.petId, record.appointmentDate);
+    }
+  }
+
+  for (const appointment of appointments) {
+    if (appointment.status !== 'Completed') continue;
+    const existing = lastVisitByPetId.get(appointment.petId);
+    if (!existing || appointment.startAt.localeCompare(existing) > 0) {
+      lastVisitByPetId.set(appointment.petId, appointment.startAt);
+    }
+  }
+
+  return lastVisitByPetId;
+}
+
 export function mapPet(
   pet: PetResponse,
   opts?: { lastVisit?: string | null; overdueVaccines?: boolean },
@@ -113,12 +138,24 @@ export function mapPet(
   };
 }
 
+export function attachPetPhotosToAppointments(
+  appointments: AppointmentViewModel[],
+  pets: Array<{ id: string; photoUrl?: string | null }>,
+): AppointmentViewModel[] {
+  const photoByPetId = new Map(pets.map((pet) => [pet.id, pet.photoUrl ?? null]));
+  return appointments.map((appointment) => ({
+    ...appointment,
+    petPhotoUrl: photoByPetId.get(appointment.petId) ?? appointment.petPhotoUrl ?? null,
+  }));
+}
+
 export function mapAppointment(a: AppointmentResponse): AppointmentViewModel {
   return {
     id: a.id,
     petId: a.petId,
     petName: a.petName,
     petSpecies: a.petSpecies,
+    petPhotoUrl: null,
     ownerId: a.ownerId,
     ownerName: a.ownerFullName,
     ownerPhone: '',

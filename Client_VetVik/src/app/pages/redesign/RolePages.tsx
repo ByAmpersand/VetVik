@@ -47,6 +47,8 @@ import {
   staffApi,
 } from '../../../api/endpoints';
 import {
+  attachPetPhotosToAppointments,
+  buildLastVisitByPetId,
   mapAppointment,
   mapDoctor,
   mapMedicalRecord,
@@ -436,6 +438,16 @@ interface SlotCandidate {
   roomName: string;
 }
 
+function buildSlotKey(doctorId: string, roomId: string, startsAt: Date): string {
+  const localValue = toDateTimeInputValue(startsAt.toISOString());
+  return `${doctorId}|${roomId}|${localValue}`;
+}
+
+function parseSlotKey(value: string): { doctorId: string; roomId: string; startAt: string } {
+  const [doctorId = '', roomId = '', startAt = ''] = value.split('|');
+  return { doctorId, roomId, startAt };
+}
+
 interface AppointmentClient {
   ownerId: string;
   firstName: string;
@@ -632,10 +644,8 @@ function AppointmentFormDialog({
           .map((slot) => {
             const startsAt = new Date(slot.startAt);
             if (Number.isNaN(startsAt.getTime())) return null;
-            const localValue = toDateTimeInputValue(slot.startAt);
-            if (!localValue) return null;
             return {
-              value: `${slot.doctorId}|${slot.roomId}|${localValue}`,
+              value: buildSlotKey(slot.doctorId, slot.roomId, startsAt),
               doctorId: slot.doctorId,
               roomId: slot.roomId,
               startsAt,
@@ -666,8 +676,14 @@ function AppointmentFormDialog({
 
   const selectedSlotValue = useMemo(() => {
     if (!draft.doctorId || !draft.startAt) return '';
-    return `${draft.doctorId}|${draft.roomId || ''}|${draft.startAt}`;
-  }, [draft.doctorId, draft.roomId, draft.startAt]);
+    const matched = availableSlots.find(
+      (slot) =>
+        slot.doctorId === draft.doctorId &&
+        toDateTimeInputValue(slot.startsAt.toISOString()) === draft.startAt,
+    );
+    if (matched) return matched.value;
+    return buildSlotKey(draft.doctorId, draft.roomId, new Date(draft.startAt));
+  }, [availableSlots, draft.doctorId, draft.roomId, draft.startAt]);
 
   const slotOptions: SelectOption[] = useMemo(
     () =>
@@ -684,11 +700,12 @@ function AppointmentFormDialog({
   );
 
   const handleSelectSlot = (slot: SlotCandidate) => {
+    const { startAt } = parseSlotKey(slot.value);
     setDraft((prev) => ({
       ...prev,
       doctorId: slot.doctorId,
-      roomId: isOwnerBooking ? prev.roomId : slot.roomId || prev.roomId,
-      startAt: toDateTimeInputValue(slot.startsAt.toISOString()),
+      roomId: slot.roomId || prev.roomId,
+      startAt,
     }));
   };
 
@@ -920,11 +937,11 @@ function AppointmentFormDialog({
             label="Available slots"
             value={selectedSlotValue}
             onChange={(value) => {
-              const [doctorId, roomId, startAt] = value.split('|');
+              const { doctorId, roomId, startAt } = parseSlotKey(value);
               setDraft((prev) => ({
                 ...prev,
                 doctorId: doctorId || prev.doctorId,
-                roomId: !isOwnerBooking ? (roomId ?? prev.roomId) : prev.roomId,
+                roomId: roomId || prev.roomId,
                 startAt: startAt || '',
               }));
             }}
@@ -939,8 +956,7 @@ function AppointmentFormDialog({
               </p>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 {availableSlots.slice(0, 12).map((slot) => {
-                  const slotValue = `${slot.doctorId}|${slot.roomId}|${toDateTimeInputValue(slot.startsAt.toISOString())}`;
-                  const isSelected = selectedSlotValue === slotValue;
+                  const isSelected = selectedSlotValue === slot.value;
                   const slotTime = slot.startsAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                   return (
                     <button
@@ -1574,8 +1590,18 @@ export function RedesignedOwnerDashboard() {
   const petIds = petsState.data.map((p) => p.id);
   const recordsState = useOwnerMedicalRecords(petIds);
 
-  const ownerPets = petsState.data.map((p) => mapPet(p));
-  const ownerAppointments = appointmentsState.data.map(mapAppointment);
+  const lastVisitByPetId = useMemo(
+    () => buildLastVisitByPetId(recordsState.data, appointmentsState.data),
+    [recordsState.data, appointmentsState.data],
+  );
+  const ownerPets = useMemo(
+    () => petsState.data.map((pet) => mapPet(pet, { lastVisit: lastVisitByPetId.get(pet.id) ?? null })),
+    [petsState.data, lastVisitByPetId],
+  );
+  const ownerAppointments = attachPetPhotosToAppointments(
+    appointmentsState.data.map(mapAppointment),
+    petsState.data,
+  );
   const awaitingAppointments = ownerAppointments.filter((a) => a.status === 'Awaiting');
   const acceptedAppointments = ownerAppointments.filter((a) => a.status === 'Accepted');
   const upcomingOwner = ownerAppointments.filter((a) => isOpenAppointmentStatus(a.status));
@@ -1657,8 +1683,18 @@ export function RedesignedOwnerDashboard() {
 export function RedesignedMyPets() {
   const navigate = useNavigate();
   const petsState = useOwnerPets();
+  const appointmentsState = useOwnerAppointments();
   const currentUserState = useCurrentUserProfile();
-  const ownerPets = petsState.data.map((p) => mapPet(p));
+  const petIds = petsState.data.map((pet) => pet.id);
+  const recordsState = useOwnerMedicalRecords(petIds);
+  const lastVisitByPetId = useMemo(
+    () => buildLastVisitByPetId(recordsState.data, appointmentsState.data),
+    [recordsState.data, appointmentsState.data],
+  );
+  const ownerPets = useMemo(
+    () => petsState.data.map((pet) => mapPet(pet, { lastVisit: lastVisitByPetId.get(pet.id) ?? null })),
+    [petsState.data, lastVisitByPetId],
+  );
   const [editingPet, setEditingPet] = useState<PetResponse | null>(null);
   const [petDialogOpen, setPetDialogOpen] = useState(false);
   const [savingPet, setSavingPet] = useState(false);
@@ -1749,16 +1785,24 @@ export function RedesignedPetProfile() {
   const params = useParams();
   const petsState = useOwnerPets();
   const currentUserState = useCurrentUserProfile();
-  const ownerPets = petsState.data.map((p) => mapPet(p));
-  const petId = params.id ?? ownerPets[0]?.id;
+  const petId = params.id ?? petsState.data[0]?.id;
   const petState = usePetById(petId, petsState.data);
   const petRaw = petState.data ?? petsState.data[0];
-  const pet = petRaw ? mapPet(petRaw) : ownerPets[0];
   const recordsState = usePetMedicalRecords(petRaw?.id);
   const appointmentsState = useOwnerAppointments();
   const vaccinesState = usePetVaccinations(petRaw?.id);
+  const lastVisitByPetId = useMemo(
+    () => buildLastVisitByPetId(recordsState.data, appointmentsState.data),
+    [recordsState.data, appointmentsState.data],
+  );
+  const pet = petRaw
+    ? mapPet(petRaw, { lastVisit: lastVisitByPetId.get(petRaw.id) ?? null })
+    : undefined;
   const records = recordsState.data.map(mapMedicalRecord);
-  const petAppointments = appointmentsState.data.filter((a) => a.petId === petRaw?.id).map(mapAppointment);
+  const petAppointments = attachPetPhotosToAppointments(
+    appointmentsState.data.filter((a) => a.petId === petRaw?.id).map(mapAppointment),
+    petsState.data,
+  );
   const petVaccines = vaccinesState.data.map(mapVaccination);
   const [editingPet, setEditingPet] = useState(false);
   const [savingPet, setSavingPet] = useState(false);
@@ -1916,7 +1960,10 @@ export function RedesignedOwnerAppointments() {
   const doctorsState = useDoctors(false);
   const servicesState = useServices();
   const { cancel, busyId } = useAppointmentActions(() => appointmentsState.reload());
-  const ownerAppointments = appointmentsState.data.map(mapAppointment);
+  const ownerAppointments = attachPetPhotosToAppointments(
+    appointmentsState.data.map(mapAppointment),
+    petsState.data,
+  );
   const bookableDoctors = doctorsState.data.filter((doctor) => doctor.isActive);
   const bookingReady = !petsState.loading && !doctorsState.loading && !servicesState.loading;
   const bookingErrorMessage =
@@ -2593,9 +2640,13 @@ export function RedesignedClinicCalendar() {
   const boundaries = useMemo(() => rangeBoundaries(range, anchorDate), [range, anchorDate]);
   const appointmentsState = useAdminAppointments(boundaries.from.toISOString(), boundaries.to.toISOString());
   const doctorsState = useDoctors(true);
+  const petsState = useAllPets();
   const allAppointments = useMemo(
-    () => appointmentsState.data.map(mapAppointment),
-    [appointmentsState.data],
+    () => attachPetPhotosToAppointments(
+      appointmentsState.data.map(mapAppointment),
+      petsState.data,
+    ),
+    [appointmentsState.data, petsState.data],
   );
 
   const filteredAppointments = useMemo(() => {
@@ -2768,8 +2819,11 @@ export function RedesignedAppointmentManagement() {
   const clientsState = useClientsDirectory();
   const { cancel, complete, confirm, reject, busyId } = useAppointmentActions(() => appointmentsState.reload());
   const allAppointments = useMemo(
-    () => appointmentsState.data.map(mapAppointment),
-    [appointmentsState.data],
+    () => attachPetPhotosToAppointments(
+      appointmentsState.data.map(mapAppointment),
+      petsState.data,
+    ),
+    [appointmentsState.data, petsState.data],
   );
   const [editingAppointment, setEditingAppointment] = useState<AppointmentResponse | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);

@@ -419,6 +419,7 @@ export function AppointmentCard({
   appointment: {
     petName: string;
     petSpecies: string;
+    petPhotoUrl?: string | null;
     ownerName?: string;
     doctorName: string;
     roomName?: string;
@@ -454,7 +455,7 @@ export function AppointmentCard({
             : undefined
         }
       >
-        <PetAvatar species={appointment.petSpecies} size="sm" />
+        <PetAvatar species={appointment.petSpecies} size="sm" photoUrl={appointment.petPhotoUrl} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-black tracking-[-0.02em] text-white">{appointment.petName}</h3>
