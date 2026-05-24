@@ -91,25 +91,129 @@ internal sealed class IdentityService : IIdentityService
         Guid? profileId = null;
         string? first = null;
         string? last = null;
+        string? photoUrl = null;
 
         if (roles.Contains(Roles.Owner))
         {
             var p = await _db.OwnerProfiles.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == user.Id, ct);
-            if (p is not null) { profileId = p.Id; first = p.FirstName; last = p.LastName; }
+            if (p is not null) { profileId = p.Id; first = p.FirstName; last = p.LastName; photoUrl = p.PhotoUrl; }
         }
         else if (roles.Contains(Roles.Doctor))
         {
             var p = await _db.DoctorProfiles.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == user.Id, ct);
-            if (p is not null) { profileId = p.Id; first = p.FirstName; last = p.LastName; }
+            if (p is not null) { profileId = p.Id; first = p.FirstName; last = p.LastName; photoUrl = p.PhotoUrl; }
         }
         else if (roles.Contains(Roles.Admin) || roles.Contains(Roles.SuperAdmin))
         {
             var p = await _db.AdminProfiles.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == user.Id, ct);
-            if (p is not null) { profileId = p.Id; first = p.FirstName; last = p.LastName; }
+            if (p is not null) { profileId = p.Id; first = p.FirstName; last = p.LastName; photoUrl = p.PhotoUrl; }
         }
 
-        return new CurrentUserResponse(user.Id, user.Email!, roles.ToArray(), profileId, first, last);
+        var preferences = await GetNotificationPreferencesAsync(user.Id, ct);
+        return new CurrentUserResponse(user.Id, user.Email!, roles.ToArray(), profileId, first, last, photoUrl, preferences);
     }
+
+    public async Task<CurrentUserResponse> UpdateCurrentUserProfileAsync(
+        string userId,
+        UpdateCurrentUserProfileRequest r,
+        CancellationToken ct)
+    {
+        var user = await _userManager.FindByIdAsync(userId)
+            ?? throw new NotFoundException("User", userId);
+        var roles = await _userManager.GetRolesAsync(user);
+
+        if (roles.Contains(Roles.Owner))
+        {
+            var profile = await _db.OwnerProfiles.FirstOrDefaultAsync(x => x.UserId == user.Id, ct)
+                ?? throw new NotFoundException("OwnerProfile", user.Id);
+            profile.FirstName = r.FirstName.Trim();
+            profile.LastName = r.LastName.Trim();
+            profile.PhotoUrl = NormalizeOptional(r.PhotoUrl);
+            profile.UpdatedAt = _clock.UtcNow;
+        }
+        else if (roles.Contains(Roles.Doctor))
+        {
+            var profile = await _db.DoctorProfiles.FirstOrDefaultAsync(x => x.UserId == user.Id, ct)
+                ?? throw new NotFoundException("DoctorProfile", user.Id);
+            profile.FirstName = r.FirstName.Trim();
+            profile.LastName = r.LastName.Trim();
+            profile.PhotoUrl = NormalizeOptional(r.PhotoUrl);
+            profile.UpdatedAt = _clock.UtcNow;
+        }
+        else if (roles.Contains(Roles.Admin) || roles.Contains(Roles.SuperAdmin))
+        {
+            var profile = await _db.AdminProfiles.FirstOrDefaultAsync(x => x.UserId == user.Id, ct)
+                ?? throw new NotFoundException("AdminProfile", user.Id);
+            profile.FirstName = r.FirstName.Trim();
+            profile.LastName = r.LastName.Trim();
+            profile.PhotoUrl = NormalizeOptional(r.PhotoUrl);
+        }
+        else
+        {
+            throw new ForbiddenException("The current user has no editable profile.");
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return await GetCurrentUserAsync(userId, ct);
+    }
+
+    public async Task ChangePasswordAsync(string userId, ChangePasswordRequest r, CancellationToken ct)
+    {
+        var user = await _userManager.FindByIdAsync(userId)
+            ?? throw new NotFoundException("User", userId);
+
+        var result = await _userManager.ChangePasswordAsync(user, r.CurrentPassword, r.NewPassword);
+        if (!result.Succeeded)
+            throw new BusinessRuleException(string.Join("; ", result.Errors.Select(e => e.Description)));
+    }
+
+    public async Task<NotificationPreferencesResponse> GetNotificationPreferencesAsync(string userId, CancellationToken ct)
+    {
+        var preferences = await EnsureNotificationPreferencesAsync(userId, ct);
+        return ToNotificationPreferencesResponse(preferences);
+    }
+
+    public async Task<NotificationPreferencesResponse> UpdateNotificationPreferencesAsync(
+        string userId,
+        NotificationPreferencesRequest r,
+        CancellationToken ct)
+    {
+        var preferences = await EnsureNotificationPreferencesAsync(userId, ct);
+        preferences.AppointmentReminders = r.AppointmentReminders;
+        preferences.MedicalRecordUpdates = r.MedicalRecordUpdates;
+        preferences.ClinicAnnouncements = r.ClinicAnnouncements;
+        preferences.UpdatedAt = _clock.UtcNow;
+
+        await _db.SaveChangesAsync(ct);
+        return ToNotificationPreferencesResponse(preferences);
+    }
+
+    private async Task<UserNotificationPreferences> EnsureNotificationPreferencesAsync(string userId, CancellationToken ct)
+    {
+        var preferences = await _db.UserNotificationPreferences.FirstOrDefaultAsync(x => x.UserId == userId, ct);
+        if (preferences is not null) return preferences;
+
+        if (await _userManager.FindByIdAsync(userId) is null)
+            throw new NotFoundException("User", userId);
+
+        preferences = new UserNotificationPreferences
+        {
+            UserId = userId,
+            AppointmentReminders = true,
+            MedicalRecordUpdates = true,
+            ClinicAnnouncements = true,
+            CreatedAt = _clock.UtcNow
+        };
+        _db.UserNotificationPreferences.Add(preferences);
+        await _db.SaveChangesAsync(ct);
+        return preferences;
+    }
+
+    private static NotificationPreferencesResponse ToNotificationPreferencesResponse(UserNotificationPreferences p) =>
+        new(p.AppointmentReminders, p.MedicalRecordUpdates, p.ClinicAnnouncements);
+
+    private static string? NormalizeOptional(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private async Task<AuthResponse> IssueTokenAsync(ApplicationUser user, CancellationToken ct)
     {

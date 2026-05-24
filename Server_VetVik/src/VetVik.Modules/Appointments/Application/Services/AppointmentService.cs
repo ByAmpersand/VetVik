@@ -13,6 +13,12 @@ internal sealed class AppointmentService : IAppointmentService
 {
     private readonly VetVikDbContext _db;
     private readonly IClock _clock;
+    private static readonly AppointmentStatus[] BlockingStatuses =
+    {
+        AppointmentStatus.Scheduled,
+        AppointmentStatus.Confirmed,
+        AppointmentStatus.Completed
+    };
 
     public AppointmentService(VetVikDbContext db, IClock clock) { _db = db; _clock = clock; }
 
@@ -65,6 +71,116 @@ internal sealed class AppointmentService : IAppointmentService
     public Task<IReadOnlyList<AppointmentResponse>> GetCalendarAsync(DateTime from, DateTime to, CancellationToken ct)
         => GetByDateRangeAsync(from, to, null, null, ct);
 
+    public async Task<IReadOnlyList<AvailableAppointmentSlotResponse>> FindAvailableSlotsAsync(
+        FindAvailableAppointmentSlotsRequest r,
+        CancellationToken ct)
+    {
+        if (r.To <= r.From)
+            throw new BusinessRuleException("Range 'to' must be greater than 'from'.");
+
+        if (r.MaxSlots <= 0)
+            return Array.Empty<AvailableAppointmentSlotResponse>();
+
+        var service = await _db.Services.AsNoTracking().FirstOrDefaultAsync(s => s.Id == r.ServiceId, ct)
+            ?? throw new NotFoundException("Service", r.ServiceId);
+
+        var clinicHours = await _db.ClinicWorkingHours.AsNoTracking().ToListAsync(ct);
+        var rooms = await _db.Rooms.AsNoTracking()
+            .Where(room => room.IsActive)
+            .OrderBy(room => room.Name)
+            .Select(room => new RoomOption(room.Id, room.Name))
+            .ToListAsync(ct);
+        if (rooms.Count == 0)
+            return Array.Empty<AvailableAppointmentSlotResponse>();
+
+        var doctorQuery = _db.DoctorProfiles.AsNoTracking().Where(d => d.IsActive);
+        if (r.DoctorId.HasValue)
+            doctorQuery = doctorQuery.Where(d => d.Id == r.DoctorId.Value);
+
+        var doctors = await doctorQuery
+            .OrderBy(d => d.LastName).ThenBy(d => d.FirstName)
+            .Select(d => new DoctorOption(
+                d.Id,
+                (d.FirstName + " " + d.LastName).Trim()))
+            .ToListAsync(ct);
+
+        if (r.DoctorId.HasValue && doctors.Count == 0)
+            throw new NotFoundException("DoctorProfile", r.DoctorId.Value);
+        if (doctors.Count == 0)
+            return Array.Empty<AvailableAppointmentSlotResponse>();
+
+        var doctorIds = doctors.Select(d => d.Id).ToList();
+        var doctorHours = await _db.DoctorWorkingHours.AsNoTracking()
+            .Where(h => doctorIds.Contains(h.DoctorId))
+            .ToListAsync(ct);
+
+        var fromDay = r.From.Date;
+        var toDayExclusive = r.To.Date.AddDays(1);
+
+        var appointments = await _db.Appointments.AsNoTracking()
+            .Where(a =>
+                BlockingStatuses.Contains(a.Status) &&
+                a.StartAt < r.To &&
+                a.EndAt > r.From &&
+                a.StartAt >= fromDay &&
+                a.StartAt < toDayExclusive)
+            .Select(a => new BlockingAppointment(a.DoctorId, a.RoomId, a.StartAt, a.EndAt))
+            .ToListAsync(ct);
+
+        var duration = TimeSpan.FromMinutes(service.DurationMinutes);
+        var step = TimeSpan.FromMinutes(r.StepMinutes);
+        var slots = new List<AvailableAppointmentSlotResponse>(Math.Min(r.MaxSlots, 128));
+        var autoAssignedDoctor = !r.DoctorId.HasValue;
+
+        for (var startAt = r.From; startAt + duration <= r.To; startAt = startAt.Add(step))
+        {
+            var endAt = startAt.Add(duration);
+
+            if (!AppointmentRules.WithinSameLocalDay(startAt, endAt))
+                continue;
+
+            if (!AppointmentRules.WithinClinicHours(startAt, endAt, clinicHours))
+                continue;
+
+            foreach (var doctor in doctors)
+            {
+                var doctorDayHours = doctorHours.Where(h => h.DoctorId == doctor.Id);
+                if (!AppointmentRules.WithinDoctorHours(startAt, endAt, doctorDayHours))
+                    continue;
+
+                var hasDoctorConflict = appointments.Any(a =>
+                    a.DoctorId == doctor.Id
+                    && AppointmentRules.Overlaps(startAt, endAt, a.StartAt, a.EndAt));
+                if (hasDoctorConflict)
+                    continue;
+
+                var room = rooms.FirstOrDefault(room =>
+                    !appointments.Any(a =>
+                        a.RoomId == room.Id
+                        && AppointmentRules.Overlaps(startAt, endAt, a.StartAt, a.EndAt)));
+
+                if (room is null)
+                    continue;
+
+                slots.Add(new AvailableAppointmentSlotResponse(
+                    startAt,
+                    endAt,
+                    doctor.Id,
+                    doctor.FullName,
+                    room.Id,
+                    room.Name,
+                    autoAssignedDoctor));
+
+                break;
+            }
+
+            if (slots.Count >= r.MaxSlots)
+                break;
+        }
+
+        return slots;
+    }
+
     public async Task<AppointmentResponse> CreateAsync(
         CreateAppointmentRequest r, string? actingUserId, bool actingIsOwner, CancellationToken ct)
     {
@@ -76,21 +192,17 @@ internal sealed class AppointmentService : IAppointmentService
         var service = await _db.Services.AsNoTracking().FirstOrDefaultAsync(s => s.Id == r.ServiceId, ct)
             ?? throw new NotFoundException("Service", r.ServiceId);
 
-        if (!await _db.DoctorProfiles.AnyAsync(d => d.Id == r.DoctorId && d.IsActive, ct))
-            throw new NotFoundException("DoctorProfile", r.DoctorId);
-
         var startAt = r.StartAt;
         var endAt = r.EndAt ?? startAt.AddMinutes(service.DurationMinutes);
+        var (doctorId, roomId) = await ResolveDoctorAndRoomAsync(r.DoctorId, r.RoomId, startAt, endAt, ct);
 
-        var roomId = await ResolveRoomIdAsync(r.RoomId, startAt, endAt, actingIsOwner, ct);
-
-        await EnsureBookingIsLegalAsync(r.DoctorId, roomId, startAt, endAt, excludeAppointmentId: null, ct);
+        await EnsureBookingIsLegalAsync(doctorId, roomId, startAt, endAt, excludeAppointmentId: null, ct);
 
         var entity = new Appointment
         {
             OwnerId = ownerId,
             PetId = r.PetId,
-            DoctorId = r.DoctorId,
+            DoctorId = doctorId,
             RoomId = roomId,
             ServiceId = r.ServiceId,
             StartAt = startAt,
@@ -164,6 +276,42 @@ internal sealed class AppointmentService : IAppointmentService
         return await GetAsync(entity.Id, ct);
     }
 
+    public async Task<AppointmentResponse> ConfirmAsync(Guid id, CancellationToken ct)
+    {
+        var entity = await _db.Appointments.FirstOrDefaultAsync(a => a.Id == id, ct)
+            ?? throw new NotFoundException("Appointment", id);
+
+        if (entity.Status is AppointmentStatus.Cancelled or AppointmentStatus.NoShow or AppointmentStatus.Completed)
+            throw new BusinessRuleException($"Cannot confirm an appointment in status {entity.Status}.");
+
+        if (entity.Status is AppointmentStatus.Confirmed)
+            return await GetAsync(entity.Id, ct);
+
+        entity.Status = AppointmentStatus.Confirmed;
+        entity.UpdatedAt = _clock.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        return await GetAsync(entity.Id, ct);
+    }
+
+    public async Task<AppointmentResponse> RejectAsync(Guid id, string? reason, CancellationToken ct)
+    {
+        var entity = await _db.Appointments.FirstOrDefaultAsync(a => a.Id == id, ct)
+            ?? throw new NotFoundException("Appointment", id);
+
+        if (entity.Status is AppointmentStatus.Completed)
+            throw new BusinessRuleException("Completed appointments cannot be rejected.");
+
+        if (entity.Status is not AppointmentStatus.Scheduled)
+            throw new BusinessRuleException($"Only pending (Scheduled) appointments can be rejected, current status is {entity.Status}.");
+
+        entity.Status = AppointmentStatus.Cancelled;
+        entity.CancelledAt = _clock.UtcNow;
+        entity.CancellationReason = string.IsNullOrWhiteSpace(reason) ? "Rejected by doctor" : reason;
+        entity.UpdatedAt = _clock.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        return await GetAsync(entity.Id, ct);
+    }
+
     public async Task<AppointmentResponse> CompleteAsync(Guid id, CancellationToken ct)
     {
         var entity = await _db.Appointments.FirstOrDefaultAsync(a => a.Id == id, ct)
@@ -229,17 +377,10 @@ internal sealed class AppointmentService : IAppointmentService
         if (!AppointmentRules.WithinDoctorHours(startAt, endAt, doctorHours))
             throw new BusinessRuleException("Appointment is outside doctor working hours.");
 
-        var blockingStatuses = new[]
-        {
-            AppointmentStatus.Scheduled,
-            AppointmentStatus.Confirmed,
-            AppointmentStatus.Completed
-        };
-
         var doctorConflict = await _db.Appointments.AsNoTracking().AnyAsync(a =>
             a.DoctorId == doctorId
             && a.Id != (excludeAppointmentId ?? Guid.Empty)
-            && blockingStatuses.Contains(a.Status)
+            && BlockingStatuses.Contains(a.Status)
             && a.StartAt < endAt
             && a.EndAt > startAt, ct);
         if (doctorConflict)
@@ -248,7 +389,7 @@ internal sealed class AppointmentService : IAppointmentService
         var roomConflict = await _db.Appointments.AsNoTracking().AnyAsync(a =>
             a.RoomId == roomId
             && a.Id != (excludeAppointmentId ?? Guid.Empty)
-            && blockingStatuses.Contains(a.Status)
+            && BlockingStatuses.Contains(a.Status)
             && a.StartAt < endAt
             && a.EndAt > startAt, ct);
         if (roomConflict)
@@ -256,7 +397,7 @@ internal sealed class AppointmentService : IAppointmentService
     }
 
     private async Task<Guid> ResolveRoomIdAsync(
-        Guid? requestedRoomId, DateTime startAt, DateTime endAt, bool actingIsOwner, CancellationToken ct)
+        Guid? requestedRoomId, DateTime startAt, DateTime endAt, CancellationToken ct)
     {
         if (requestedRoomId.HasValue && requestedRoomId.Value != Guid.Empty)
         {
@@ -264,9 +405,6 @@ internal sealed class AppointmentService : IAppointmentService
                 throw new NotFoundException("Room", requestedRoomId.Value);
             return requestedRoomId.Value;
         }
-
-        if (!actingIsOwner)
-            throw new BusinessRuleException("Room is required for clinic scheduling.");
 
         return await FindAvailableRoomAsync(startAt, endAt, ct);
     }
@@ -281,18 +419,11 @@ internal sealed class AppointmentService : IAppointmentService
         if (activeRooms.Count == 0)
             throw new BusinessRuleException("No exam rooms are available for booking.");
 
-        var blockingStatuses = new[]
-        {
-            AppointmentStatus.Scheduled,
-            AppointmentStatus.Confirmed,
-            AppointmentStatus.Completed
-        };
-
         foreach (var room in activeRooms)
         {
             var roomConflict = await _db.Appointments.AsNoTracking().AnyAsync(a =>
                 a.RoomId == room.Id
-                && blockingStatuses.Contains(a.Status)
+                && BlockingStatuses.Contains(a.Status)
                 && a.StartAt < endAt
                 && a.EndAt > startAt, ct);
             if (!roomConflict)
@@ -300,6 +431,106 @@ internal sealed class AppointmentService : IAppointmentService
         }
 
         throw new ConflictException("No exam room is free for the selected time slot.");
+    }
+
+    private async Task<(Guid DoctorId, Guid RoomId)> ResolveDoctorAndRoomAsync(
+        Guid? requestedDoctorId,
+        Guid? requestedRoomId,
+        DateTime startAt,
+        DateTime endAt,
+        CancellationToken ct)
+    {
+        if (requestedDoctorId.HasValue && requestedDoctorId.Value != Guid.Empty)
+        {
+            if (!await _db.DoctorProfiles.AnyAsync(d => d.Id == requestedDoctorId.Value && d.IsActive, ct))
+                throw new NotFoundException("DoctorProfile", requestedDoctorId.Value);
+
+            var roomId = await ResolveRoomIdAsync(requestedRoomId, startAt, endAt, ct);
+            return (requestedDoctorId.Value, roomId);
+        }
+
+        return await FindAvailableDoctorAndRoomAsync(startAt, endAt, requestedRoomId, ct);
+    }
+
+    private async Task<(Guid DoctorId, Guid RoomId)> FindAvailableDoctorAndRoomAsync(
+        DateTime startAt,
+        DateTime endAt,
+        Guid? requestedRoomId,
+        CancellationToken ct)
+    {
+        if (!AppointmentRules.TimeRangeIsValid(startAt, endAt))
+            throw new BusinessRuleException("Appointment end time must be after start time.");
+
+        if (startAt < _clock.UtcNow)
+            throw new BusinessRuleException("Appointment cannot start in the past.");
+
+        var clinicHours = await _db.ClinicWorkingHours.AsNoTracking().ToListAsync(ct);
+        if (!AppointmentRules.WithinClinicHours(startAt, endAt, clinicHours))
+            throw new BusinessRuleException("Appointment is outside clinic working hours.");
+
+        var doctors = await _db.DoctorProfiles.AsNoTracking()
+            .Where(d => d.IsActive)
+            .OrderBy(d => d.LastName).ThenBy(d => d.FirstName)
+            .Select(d => d.Id)
+            .ToListAsync(ct);
+        if (doctors.Count == 0)
+            throw new BusinessRuleException("No active doctors are available for booking.");
+
+        List<Guid> rooms;
+        if (requestedRoomId.HasValue && requestedRoomId.Value != Guid.Empty)
+        {
+            if (!await _db.Rooms.AsNoTracking().AnyAsync(rm => rm.Id == requestedRoomId.Value && rm.IsActive, ct))
+                throw new NotFoundException("Room", requestedRoomId.Value);
+            rooms = new List<Guid> { requestedRoomId.Value };
+        }
+        else
+        {
+            rooms = await _db.Rooms.AsNoTracking()
+                .Where(r => r.IsActive)
+                .OrderBy(r => r.Name)
+                .Select(r => r.Id)
+                .ToListAsync(ct);
+        }
+
+        if (rooms.Count == 0)
+            throw new BusinessRuleException("No exam rooms are available for booking.");
+
+        var doctorHours = await _db.DoctorWorkingHours.AsNoTracking()
+            .Where(h => doctors.Contains(h.DoctorId))
+            .ToListAsync(ct);
+
+        var blockingAppointments = await _db.Appointments.AsNoTracking()
+            .Where(a =>
+                BlockingStatuses.Contains(a.Status) &&
+                a.StartAt < endAt &&
+                a.EndAt > startAt &&
+                (doctors.Contains(a.DoctorId) || rooms.Contains(a.RoomId)))
+            .Select(a => new BlockingAppointment(a.DoctorId, a.RoomId, a.StartAt, a.EndAt))
+            .ToListAsync(ct);
+
+        foreach (var doctorId in doctors)
+        {
+            var doctorDayHours = doctorHours.Where(h => h.DoctorId == doctorId);
+            if (!AppointmentRules.WithinDoctorHours(startAt, endAt, doctorDayHours))
+                continue;
+
+            var doctorConflict = blockingAppointments.Any(a =>
+                a.DoctorId == doctorId
+                && AppointmentRules.Overlaps(startAt, endAt, a.StartAt, a.EndAt));
+            if (doctorConflict)
+                continue;
+
+            foreach (var roomId in rooms)
+            {
+                var roomConflict = blockingAppointments.Any(a =>
+                    a.RoomId == roomId
+                    && AppointmentRules.Overlaps(startAt, endAt, a.StartAt, a.EndAt));
+                if (!roomConflict)
+                    return (doctorId, roomId);
+            }
+        }
+
+        throw new ConflictException("No available doctor and room for the selected time slot.");
     }
 
     private IQueryable<AppointmentResponse> BaseQuery(IQueryable<Appointment> appointments) =>
@@ -326,4 +557,8 @@ internal sealed class AppointmentService : IAppointmentService
                 a.UpdatedAt,
                 a.CancelledAt,
                 a.CancellationReason));
+
+    private sealed record DoctorOption(Guid Id, string FullName);
+    private sealed record RoomOption(Guid Id, string Name);
+    private sealed record BlockingAppointment(Guid DoctorId, Guid RoomId, DateTime StartAt, DateTime EndAt);
 }

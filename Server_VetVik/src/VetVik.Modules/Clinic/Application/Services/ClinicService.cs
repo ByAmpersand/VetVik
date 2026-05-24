@@ -54,20 +54,43 @@ internal sealed class ClinicService : IClinicService
         var settings = await _db.ClinicSettings.Include(x => x.WorkingHours).FirstOrDefaultAsync(ct)
             ?? throw new NotFoundException("ClinicSettings is not configured.");
 
+        var requestsByDay = new Dictionary<DayOfWeek, UpsertClinicWorkingHourRequest>();
         foreach (var r in requests)
+        {
             if (r.CloseTime <= r.OpenTime && r.IsWorkingDay)
                 throw new BusinessRuleException(
                     $"Close time must be after open time for {r.DayOfWeek}.");
 
-        _db.ClinicWorkingHours.RemoveRange(settings.WorkingHours);
-        settings.WorkingHours = requests.Select(r => new ClinicWorkingHour
+            if (!requestsByDay.TryAdd(r.DayOfWeek, r))
+                throw new BusinessRuleException($"Duplicate working hours for {r.DayOfWeek}.");
+        }
+
+        foreach (var hour in settings.WorkingHours.ToList())
         {
-            ClinicSettingsId = settings.Id,
-            DayOfWeek = r.DayOfWeek,
-            OpenTime = r.OpenTime,
-            CloseTime = r.CloseTime,
-            IsWorkingDay = r.IsWorkingDay
-        }).ToList();
+            if (!requestsByDay.TryGetValue(hour.DayOfWeek, out var request))
+            {
+                _db.ClinicWorkingHours.Remove(hour);
+                continue;
+            }
+
+            hour.OpenTime = request.OpenTime;
+            hour.CloseTime = request.CloseTime;
+            hour.IsWorkingDay = request.IsWorkingDay;
+        }
+
+        var existingDays = settings.WorkingHours.Select(h => h.DayOfWeek).ToHashSet();
+        foreach (var request in requestsByDay.Values.Where(r => !existingDays.Contains(r.DayOfWeek)))
+        {
+            settings.WorkingHours.Add(new ClinicWorkingHour
+            {
+                ClinicSettingsId = settings.Id,
+                DayOfWeek = request.DayOfWeek,
+                OpenTime = request.OpenTime,
+                CloseTime = request.CloseTime,
+                IsWorkingDay = request.IsWorkingDay
+            });
+        }
+
         settings.UpdatedAt = _clock.UtcNow;
 
         await _db.SaveChangesAsync(ct);

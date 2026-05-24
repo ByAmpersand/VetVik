@@ -8,7 +8,7 @@ public sealed class CreateAppointmentRequestValidator : AbstractValidator<Create
     public CreateAppointmentRequestValidator()
     {
         RuleFor(x => x.PetId).NotEmpty();
-        RuleFor(x => x.DoctorId).NotEmpty();
+        RuleFor(x => x.DoctorId).NotEqual(Guid.Empty).When(x => x.DoctorId.HasValue);
         RuleFor(x => x.ServiceId).NotEmpty();
         RuleFor(x => x.StartAt).NotEmpty();
         RuleFor(x => x.EndAt).GreaterThan(x => x.StartAt).When(x => x.EndAt.HasValue);
@@ -37,5 +37,18 @@ public sealed class CancelAppointmentRequestValidator : AbstractValidator<Cancel
     public CancelAppointmentRequestValidator()
     {
         RuleFor(x => x.Reason).MaximumLength(500);
+    }
+}
+
+public sealed class FindAvailableAppointmentSlotsRequestValidator : AbstractValidator<FindAvailableAppointmentSlotsRequest>
+{
+    public FindAvailableAppointmentSlotsRequestValidator()
+    {
+        RuleFor(x => x.ServiceId).NotEmpty();
+        RuleFor(x => x.From).NotEmpty();
+        RuleFor(x => x.To).GreaterThan(x => x.From);
+        RuleFor(x => x.StepMinutes).InclusiveBetween(5, 120);
+        RuleFor(x => x.MaxSlots).InclusiveBetween(1, 200);
+        RuleFor(x => x.DoctorId).NotEqual(Guid.Empty).When(x => x.DoctorId.HasValue);
     }
 }

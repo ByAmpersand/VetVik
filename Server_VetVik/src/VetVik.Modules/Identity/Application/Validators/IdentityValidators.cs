@@ -27,3 +27,25 @@ public sealed class LoginRequestValidator : AbstractValidator<LoginRequest>
         RuleFor(x => x.Password).NotEmpty();
     }
 }
+
+public sealed class UpdateCurrentUserProfileRequestValidator : AbstractValidator<UpdateCurrentUserProfileRequest>
+{
+    public UpdateCurrentUserProfileRequestValidator()
+    {
+        RuleFor(x => x.FirstName).NotEmpty().MaximumLength(100);
+        RuleFor(x => x.LastName).NotEmpty().MaximumLength(100);
+    }
+}
+
+public sealed class ChangePasswordRequestValidator : AbstractValidator<ChangePasswordRequest>
+{
+    public ChangePasswordRequestValidator()
+    {
+        RuleFor(x => x.CurrentPassword).NotEmpty();
+        RuleFor(x => x.NewPassword)
+            .NotEmpty()
+            .MinimumLength(8)
+            .Matches(@"[A-Z]").WithMessage("Password must contain an uppercase letter.")
+            .Matches(@"\d").WithMessage("Password must contain a digit.");
+    }
+}

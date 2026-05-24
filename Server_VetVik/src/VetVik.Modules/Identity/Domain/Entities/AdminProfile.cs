@@ -9,6 +9,7 @@ public class AdminProfile : BaseEntity
 
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
+    public string? PhotoUrl { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

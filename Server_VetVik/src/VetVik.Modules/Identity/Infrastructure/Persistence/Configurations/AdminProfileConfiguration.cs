@@ -14,6 +14,7 @@ public class AdminProfileConfiguration : IEntityTypeConfiguration<AdminProfile>
         b.Property(x => x.UserId).IsRequired().HasMaxLength(450);
         b.Property(x => x.FirstName).IsRequired().HasMaxLength(100);
         b.Property(x => x.LastName).IsRequired().HasMaxLength(100);
+        b.Property(x => x.PhotoUrl);
 
         b.HasOne(x => x.User)
          .WithOne()

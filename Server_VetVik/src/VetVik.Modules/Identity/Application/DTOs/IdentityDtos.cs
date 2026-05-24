@@ -22,4 +22,25 @@ public sealed record CurrentUserResponse(
     IReadOnlyList<string> Roles,
     Guid? ProfileId,
     string? FirstName,
-    string? LastName);
+    string? LastName,
+    string? PhotoUrl,
+    NotificationPreferencesResponse NotificationPreferences);
+
+public sealed record UpdateCurrentUserProfileRequest(
+    string FirstName,
+    string LastName,
+    string? PhotoUrl);
+
+public sealed record ChangePasswordRequest(
+    string CurrentPassword,
+    string NewPassword);
+
+public sealed record NotificationPreferencesResponse(
+    bool AppointmentReminders,
+    bool MedicalRecordUpdates,
+    bool ClinicAnnouncements);
+
+public sealed record NotificationPreferencesRequest(
+    bool AppointmentReminders,
+    bool MedicalRecordUpdates,
+    bool ClinicAnnouncements);

@@ -76,22 +76,34 @@ internal sealed class AnalyticsService : IAnalyticsService
 
     private async Task<IReadOnlyList<ServiceDistributionPoint>> BuildServiceDistributionAsync(CancellationToken ct)
     {
-        return await _db.Appointments.AsNoTracking()
-            .Include(a => a.Service)
-            .GroupBy(a => a.Service!.Name)
-            .Select(g => new ServiceDistributionPoint(g.Key, g.Count()))
+        var rows = await _db.Appointments.AsNoTracking()
+            .Join(
+                _db.Services.AsNoTracking(),
+                appointment => appointment.ServiceId,
+                service => service.Id,
+                (appointment, service) => service.Name)
+            .GroupBy(name => name)
+            .Select(g => new { Name = g.Key, Value = g.Count() })
             .OrderByDescending(x => x.Value)
             .Take(5)
             .ToListAsync(ct);
+
+        return rows.Select(x => new ServiceDistributionPoint(x.Name, x.Value)).ToList();
     }
 
     private async Task<IReadOnlyList<SpeciesDistributionPoint>> BuildSpeciesDistributionAsync(CancellationToken ct)
     {
-        return await _db.Pets.AsNoTracking()
-            .Include(p => p.Species)
-            .GroupBy(p => p.Species!.Name)
-            .Select(g => new SpeciesDistributionPoint(g.Key, g.Count()))
+        var rows = await _db.Pets.AsNoTracking()
+            .Join(
+                _db.AnimalSpecies.AsNoTracking(),
+                pet => pet.SpeciesId,
+                species => species.Id,
+                (pet, species) => species.Name)
+            .GroupBy(name => name)
+            .Select(g => new { Name = g.Key, Value = g.Count() })
             .OrderByDescending(x => x.Value)
             .ToListAsync(ct);
+
+        return rows.Select(x => new SpeciesDistributionPoint(x.Name, x.Value)).ToList();
     }
 }

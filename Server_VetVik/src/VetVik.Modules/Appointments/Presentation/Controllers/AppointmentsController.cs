@@ -66,6 +66,12 @@ public sealed class AppointmentsController : ControllerBase
         [FromQuery] DateTime from, [FromQuery] DateTime to, CancellationToken ct) =>
         _service.GetCalendarAsync(from, to, ct);
 
+    [HttpPost("available-slots")]
+    public Task<IReadOnlyList<AvailableAppointmentSlotResponse>> FindAvailableSlots(
+        [FromBody] FindAvailableAppointmentSlotsRequest req,
+        CancellationToken ct) =>
+        _service.FindAvailableSlotsAsync(req, ct);
+
     [HttpPost]
     public async Task<ActionResult<AppointmentResponse>> Create(
         [FromBody] CreateAppointmentRequest req, CancellationToken ct)
@@ -87,6 +93,16 @@ public sealed class AppointmentsController : ControllerBase
     public Task<AppointmentResponse> Cancel(
         Guid id, [FromBody] CancelAppointmentRequest req, CancellationToken ct) =>
         _service.CancelAsync(id, req, ct);
+
+    [HttpPost("{id:guid}/confirm")]
+    [Authorize(Roles = $"{Roles.ClinicAdmin},{Roles.Doctor}")]
+    public Task<AppointmentResponse> Confirm(Guid id, CancellationToken ct) =>
+        _service.ConfirmAsync(id, ct);
+
+    [HttpPost("{id:guid}/reject")]
+    [Authorize(Roles = $"{Roles.ClinicAdmin},{Roles.Doctor}")]
+    public Task<AppointmentResponse> Reject(Guid id, [FromBody] RejectAppointmentRequest req, CancellationToken ct) =>
+        _service.RejectAsync(id, req.Reason, ct);
 
     [HttpPost("{id:guid}/complete")]
     [Authorize(Roles = $"{Roles.ClinicAdmin},{Roles.Doctor}")]

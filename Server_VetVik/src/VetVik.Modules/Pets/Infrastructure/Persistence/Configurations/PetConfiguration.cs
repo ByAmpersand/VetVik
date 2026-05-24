@@ -15,7 +15,7 @@ public class PetConfiguration : IEntityTypeConfiguration<Pet>
         b.Property(x => x.Name).IsRequired().HasMaxLength(100);
         b.Property(x => x.Sex).HasConversion<int>();
         b.Property(x => x.Weight).HasColumnType("decimal(6,2)");
-        b.Property(x => x.PhotoUrl).HasMaxLength(500);
+        b.Property(x => x.PhotoUrl);
         b.Property(x => x.Notes).HasMaxLength(1000);
 
         b.HasOne(x => x.Owner)

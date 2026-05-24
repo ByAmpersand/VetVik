@@ -42,4 +42,48 @@ public sealed class AuthController : ControllerBase
             throw new ForbiddenException("Authentication required.");
         return _identity.GetCurrentUserAsync(_currentUser.UserId, ct);
     }
+
+    [HttpPut("me/profile")]
+    [Authorize]
+    [ProducesResponseType(typeof(CurrentUserResponse), StatusCodes.Status200OK)]
+    public Task<CurrentUserResponse> UpdateProfile([FromBody] UpdateCurrentUserProfileRequest request, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(_currentUser.UserId))
+            throw new ForbiddenException("Authentication required.");
+        return _identity.UpdateCurrentUserProfileAsync(_currentUser.UserId, request, ct);
+    }
+
+    [HttpPut("me/password")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(_currentUser.UserId))
+            throw new ForbiddenException("Authentication required.");
+
+        await _identity.ChangePasswordAsync(_currentUser.UserId, request, ct);
+        return NoContent();
+    }
+
+    [HttpGet("me/notification-preferences")]
+    [Authorize]
+    [ProducesResponseType(typeof(NotificationPreferencesResponse), StatusCodes.Status200OK)]
+    public Task<NotificationPreferencesResponse> NotificationPreferences(CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(_currentUser.UserId))
+            throw new ForbiddenException("Authentication required.");
+        return _identity.GetNotificationPreferencesAsync(_currentUser.UserId, ct);
+    }
+
+    [HttpPut("me/notification-preferences")]
+    [Authorize]
+    [ProducesResponseType(typeof(NotificationPreferencesResponse), StatusCodes.Status200OK)]
+    public Task<NotificationPreferencesResponse> UpdateNotificationPreferences(
+        [FromBody] NotificationPreferencesRequest request,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(_currentUser.UserId))
+            throw new ForbiddenException("Authentication required.");
+        return _identity.UpdateNotificationPreferencesAsync(_currentUser.UserId, request, ct);
+    }
 }

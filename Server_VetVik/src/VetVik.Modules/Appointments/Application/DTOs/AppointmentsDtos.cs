@@ -31,7 +31,7 @@ public sealed record AppointmentResponse(
 /// </summary>
 public sealed record CreateAppointmentRequest(
     Guid PetId,
-    Guid DoctorId,
+    Guid? DoctorId,
     Guid? RoomId,
     Guid ServiceId,
     DateTime StartAt,
@@ -40,6 +40,26 @@ public sealed record CreateAppointmentRequest(
     string? Notes,
     // Admin/Doctor only — when null, taken from the pet's owner.
     Guid? OwnerId);
+
+/// <summary>
+/// Query for booking UI: either for a specific doctor or for auto-assignment mode.
+/// </summary>
+public sealed record FindAvailableAppointmentSlotsRequest(
+    Guid ServiceId,
+    DateTime From,
+    DateTime To,
+    Guid? DoctorId,
+    int StepMinutes = 30,
+    int MaxSlots = 30);
+
+public sealed record AvailableAppointmentSlotResponse(
+    DateTime StartAt,
+    DateTime EndAt,
+    Guid DoctorId,
+    string DoctorFullName,
+    Guid RoomId,
+    string RoomName,
+    bool IsAutoAssignedDoctor);
 
 public sealed record UpdateAppointmentRequest(
     Guid PetId,
@@ -52,3 +72,5 @@ public sealed record UpdateAppointmentRequest(
     string? Notes);
 
 public sealed record CancelAppointmentRequest(string? Reason);
+
+public sealed record RejectAppointmentRequest(string? Reason);
