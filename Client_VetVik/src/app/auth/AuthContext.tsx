@@ -20,6 +20,7 @@ interface AuthContextValue {
   user: AppUser | null;
   login: (email: string, password: string) => Promise<AppRole>;
   registerClient: (input: RegisterClientInput) => Promise<void>;
+  refreshUser: () => Promise<AppUser | null>;
   logout: () => void;
 }
 
@@ -48,7 +49,7 @@ function clearStoredUser(): void {
 
 function userFromAuthResponse(
   auth: { userId: string; email: string; roles: string[] },
-  profile?: { firstName?: string | null; lastName?: string | null },
+  profile?: { firstName?: string | null; lastName?: string | null; photoUrl?: string | null },
 ): AppUser {
   const primaryRole = auth.roles.map(apiRoleToAppRole).sort((a, b) => {
     const order: AppRole[] = ['superadmin', 'admin', 'doctor', 'client'];
@@ -60,6 +61,7 @@ function userFromAuthResponse(
     email: auth.email,
     firstName: profile?.firstName ?? auth.email.split('@')[0],
     lastName: profile?.lastName ?? '',
+    photoUrl: profile?.photoUrl ?? null,
     role: primaryRole ?? 'client',
     isProtected: primaryRole === 'superadmin',
   };
@@ -81,7 +83,7 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
     let profile: { firstName?: string | null; lastName?: string | null } | undefined;
     try {
       const me = await authApi.me();
-      profile = { firstName: me.firstName, lastName: me.lastName };
+      profile = { firstName: me.firstName, lastName: me.lastName, photoUrl: me.photoUrl };
     } catch {
       // Profile fetch is optional during login.
     }
@@ -108,6 +110,7 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
       email: auth.email,
       firstName: input.firstName,
       lastName: input.lastName,
+      photoUrl: null,
       role: 'client',
     };
     applySession(nextUser, {
@@ -129,6 +132,17 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
     return () => globalThis.removeEventListener(AUTH_STORAGE_CLEARED_EVENT, clearSession);
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    const me = await authApi.me();
+    const nextUser = userFromAuthResponse(
+      { userId: me.userId, email: me.email, roles: me.roles },
+      { firstName: me.firstName, lastName: me.lastName, photoUrl: me.photoUrl },
+    );
+    persistUser(nextUser);
+    setUser(nextUser);
+    return nextUser;
+  }, []);
+
   const logout = useCallback(() => {
     authApi.logout();
     clearStoredUser();
@@ -136,8 +150,8 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, login, registerClient, logout }),
-    [user, login, registerClient, logout],
+    () => ({ user, login, registerClient, refreshUser, logout }),
+    [user, login, registerClient, refreshUser, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

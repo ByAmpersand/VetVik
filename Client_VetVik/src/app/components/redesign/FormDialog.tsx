@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react';
-import { X } from 'lucide-react';
+import { useEffect, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { ChevronDown, X } from 'lucide-react';
 import { PrimaryButton, cn } from './VetVikUI';
 
 export interface SelectOption {
@@ -23,20 +24,46 @@ export function FormDialog({
   children: ReactNode;
   widthClassName?: string;
 }>) {
-  if (!open) return null;
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open, onClose]);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/75 p-4 backdrop-blur-sm">
-      <div className={cn('mt-10 w-full rounded-[2rem] border border-slate-700 bg-slate-900 shadow-2xl', widthClassName)}>
+  if (!open) return null;
+  if (typeof document === 'undefined') return null;
+
+  const dialog = (
+    <div
+      className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-slate-950/80 p-4 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        className={cn(
+          'my-10 w-full rounded-[2rem] border border-slate-700 bg-slate-900 shadow-2xl',
+          widthClassName,
+        )}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="flex items-start justify-between gap-4 border-b border-slate-800 px-6 py-5">
-          <div>
+          <div className="min-w-0">
             <h2 className="text-2xl font-black tracking-[-0.03em] text-white">{title}</h2>
             {description ? <p className="mt-2 text-sm leading-6 text-slate-400">{description}</p> : null}
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-2xl border border-slate-700 bg-slate-800 p-2 text-slate-300 transition hover:bg-slate-700 hover:text-white"
+            className="shrink-0 rounded-2xl border border-slate-700 bg-slate-800 p-2 text-slate-300 transition hover:bg-slate-700 hover:text-white"
             aria-label="Close dialog"
           >
             <X className="h-4 w-4" />
@@ -46,6 +73,8 @@ export function FormDialog({
       </div>
     </div>
   );
+
+  return createPortal(dialog, document.body);
 }
 
 export function FormGrid({
@@ -161,21 +190,24 @@ export function FormSelect({
   return (
     <label className="block">
       <span className="mb-2 block text-sm font-bold text-slate-200">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className={cn(
-          'h-12 w-full rounded-2xl border bg-slate-950 px-4 text-sm text-slate-100 outline-none transition focus:ring-4 focus:ring-teal-500/10',
-          error ? 'border-rose-400/70 focus:border-rose-400' : 'border-slate-700 focus:border-teal-400/60',
-        )}
-      >
-        <option value="">{placeholder}</option>
-        {options.map((option) => (
-          <option key={option.value} value={option.value} disabled={option.disabled}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+      <div className="relative">
+        <select
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className={cn(
+            'h-12 w-full appearance-none rounded-2xl border bg-slate-950 px-4 pr-11 text-sm text-slate-100 outline-none transition focus:ring-4 focus:ring-teal-500/10',
+            error ? 'border-rose-400/70 focus:border-rose-400' : 'border-slate-700 focus:border-teal-400/60',
+          )}
+        >
+          <option value="">{placeholder}</option>
+          {options.map((option) => (
+            <option key={option.value} value={option.value} disabled={option.disabled}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      </div>
       {error ? <p className="mt-1.5 text-xs font-bold text-rose-400">{error}</p> : null}
     </label>
   );

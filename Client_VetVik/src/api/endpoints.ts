@@ -4,8 +4,10 @@ import type {
   AdminInsightsResponse,
   AnimalSpeciesResponse,
   AppointmentResponse,
+  AvailableAppointmentSlotResponse,
   AuthResponse,
   BreedResponse,
+  ChangePasswordRequest,
   ClientDirectoryResponse,
   ClinicSettingsResponse,
   ClinicWorkingHourResponse,
@@ -17,8 +19,10 @@ import type {
   CurrentUserResponse,
   DoctorResponse,
   DoctorWorkingHourResponse,
+  FindAvailableAppointmentSlotsRequest,
   LoginRequest,
   MedicalRecordResponse,
+  NotificationPreferencesResponse,
   PetResponse,
   RegisterOwnerRequest,
   RoomResponse,
@@ -28,6 +32,7 @@ import type {
   StaffMemberResponse,
   UpdateAppointmentRequest,
   UpdateClinicSettingsRequest,
+  UpdateCurrentUserProfileRequest,
   UpdateDoctorRequest,
   UpdateMedicalRecordRequest,
   UpsertAnimalSpeciesRequest,
@@ -55,6 +60,14 @@ export const authApi = {
     return auth;
   },
   me: () => http.get<CurrentUserResponse>("/api/auth/me"),
+  updateProfile: (body: UpdateCurrentUserProfileRequest) =>
+    http.put<CurrentUserResponse>("/api/auth/me/profile", body),
+  changePassword: (body: ChangePasswordRequest) =>
+    http.put<void>("/api/auth/me/password", body),
+  notificationPreferences: () =>
+    http.get<NotificationPreferencesResponse>("/api/auth/me/notification-preferences"),
+  updateNotificationPreferences: (body: NotificationPreferencesResponse) =>
+    http.put<NotificationPreferencesResponse>("/api/auth/me/notification-preferences", body),
   logout: () => authStorage.clear(),
 };
 
@@ -163,11 +176,16 @@ export const appointmentsApi = {
     http.get<AppointmentResponse[]>("/api/appointments/calendar", { query: { from, to } }),
   range: (from: string, to: string, doctorId?: string, roomId?: string) =>
     http.get<AppointmentResponse[]>("/api/appointments/range", { query: { from, to, doctorId, roomId } }),
+  availableSlots: (body: FindAvailableAppointmentSlotsRequest) =>
+    http.post<AvailableAppointmentSlotResponse[]>("/api/appointments/available-slots", body),
   create: (body: CreateAppointmentRequest) => http.post<AppointmentResponse>("/api/appointments", body),
   update: (id: string, body: UpdateAppointmentRequest) =>
     http.put<AppointmentResponse>(`/api/appointments/${id}`, body),
   cancel: (id: string, reason?: string) =>
     http.post<AppointmentResponse>(`/api/appointments/${id}/cancel`, { reason }),
+  confirm: (id: string) => http.post<AppointmentResponse>(`/api/appointments/${id}/confirm`),
+  reject: (id: string, reason?: string) =>
+    http.post<AppointmentResponse>(`/api/appointments/${id}/reject`, { reason }),
   complete: (id: string) => http.post<AppointmentResponse>(`/api/appointments/${id}/complete`),
 };
 

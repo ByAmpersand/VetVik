@@ -30,6 +30,7 @@ export interface PetViewModel {
   color: string;
   microchip?: string;
   notes?: string;
+  photoUrl?: string | null;
 }
 
 export interface AppointmentViewModel {
@@ -42,11 +43,16 @@ export interface AppointmentViewModel {
   ownerPhone: string;
   doctorId: string;
   doctorName: string;
+  roomId: string;
+  roomName: string;
   date: string;
   time: string;
+  startAt: string;
+  endAt: string;
   service: string;
   status: string;
   notes: string;
+  reason: string;
 }
 
 export interface MedicalRecordViewModel {
@@ -71,6 +77,7 @@ export interface DoctorViewModel {
   phone: string;
   status: string;
   todayAppointments: number;
+  totalAppointments: number;
   avatar: string;
   experience: string;
 }
@@ -102,6 +109,7 @@ export function mapPet(
     weight: pet.weight != null ? `${pet.weight} kg` : '—',
     color: '—',
     notes: parseCustomBreedFromNotes(pet.notes).careNotes || undefined,
+    photoUrl: pet.photoUrl ?? null,
   };
 }
 
@@ -116,11 +124,16 @@ export function mapAppointment(a: AppointmentResponse): AppointmentViewModel {
     ownerPhone: '',
     doctorId: a.doctorId,
     doctorName: a.doctorFullName,
+    roomId: a.roomId,
+    roomName: a.roomName,
     date: formatDate(a.startAt),
     time: formatTime(a.startAt),
+    startAt: a.startAt,
+    endAt: a.endAt,
     service: a.serviceName,
     status: mapAppointmentStatus(a.status),
-    notes: a.notes ?? a.reason ?? '',
+    notes: a.notes ?? '',
+    reason: a.reason ?? '',
   };
 }
 
@@ -139,7 +152,36 @@ export function mapMedicalRecord(r: MedicalRecordResponse): MedicalRecordViewMod
   };
 }
 
-export function mapDoctor(d: DoctorResponse, todayCount = 0): DoctorViewModel {
+function formatDoctorExperience(appointments: AppointmentResponse[]): string {
+  if (!appointments.length) return 'New';
+  let earliestMs = Number.POSITIVE_INFINITY;
+  for (const appointment of appointments) {
+    const startMs = new Date(appointment.startAt).getTime();
+    if (Number.isFinite(startMs) && startMs < earliestMs) {
+      earliestMs = startMs;
+    }
+  }
+  if (!Number.isFinite(earliestMs)) return 'New';
+  const now = Date.now();
+  const diffMs = Math.max(0, now - earliestMs);
+  if (diffMs < 7 * 86_400_000) return 'New';
+  const days = Math.floor(diffMs / 86_400_000);
+  if (days < 30) return `${days} day${days === 1 ? '' : 's'}`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} mo`;
+  const years = Math.floor(months / 12);
+  const leftoverMonths = months % 12;
+  if (leftoverMonths === 0) return `${years} yr`;
+  return `${years} yr ${leftoverMonths} mo`;
+}
+
+export function mapDoctor(
+  d: DoctorResponse,
+  appointments: AppointmentResponse[] = [],
+): DoctorViewModel {
+  const todayKey = new Date().toDateString();
+  const doctorAppointments = appointments.filter((a) => a.doctorId === d.id);
+  const todayAppointments = doctorAppointments.filter((a) => new Date(a.startAt).toDateString() === todayKey).length;
   return {
     id: d.id,
     name: doctorDisplayName(d.firstName, d.lastName),
@@ -147,9 +189,10 @@ export function mapDoctor(d: DoctorResponse, todayCount = 0): DoctorViewModel {
     email: d.email,
     phone: '—',
     status: d.isActive ? 'Available' : 'Off duty',
-    todayAppointments: todayCount,
+    todayAppointments,
+    totalAppointments: doctorAppointments.length,
     avatar: doctorInitials(d.firstName, d.lastName),
-    experience: '—',
+    experience: formatDoctorExperience(doctorAppointments),
   };
 }
 

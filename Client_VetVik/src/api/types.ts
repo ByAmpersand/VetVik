@@ -43,9 +43,38 @@ export interface CurrentUserResponse {
   profileId?: string | null;
   firstName?: string | null;
   lastName?: string | null;
+  photoUrl?: string | null;
+  notificationPreferences: NotificationPreferencesResponse;
+}
+
+export interface UpdateCurrentUserProfileRequest {
+  firstName: string;
+  lastName: string;
+  photoUrl?: string | null;
+}
+
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
+export interface NotificationPreferencesResponse {
+  appointmentReminders: boolean;
+  medicalRecordUpdates: boolean;
+  clinicAnnouncements: boolean;
 }
 
 // --- Clinic ---
+export type DayOfWeekValue =
+  | number
+  | "Sunday"
+  | "Monday"
+  | "Tuesday"
+  | "Wednesday"
+  | "Thursday"
+  | "Friday"
+  | "Saturday";
+
 export interface ClinicSettingsResponse {
   id: string;
   name: string;
@@ -59,7 +88,7 @@ export interface ClinicSettingsResponse {
 
 export interface ClinicWorkingHourResponse {
   id: string;
-  dayOfWeek: number;
+  dayOfWeek: DayOfWeekValue;
   openTime: string;
   closeTime: string;
   isWorkingDay: boolean;
@@ -74,7 +103,7 @@ export interface UpdateClinicSettingsRequest {
 }
 
 export interface UpsertClinicWorkingHourRequest {
-  dayOfWeek: number;
+  dayOfWeek: DayOfWeekValue;
   openTime: string;
   closeTime: string;
   isWorkingDay: boolean;
@@ -168,7 +197,7 @@ export interface DoctorResponse {
 export interface DoctorWorkingHourResponse {
   id: string;
   doctorId: string;
-  dayOfWeek: number;
+  dayOfWeek: DayOfWeekValue;
   startTime: string;
   endTime: string;
   isActive: boolean;
@@ -194,7 +223,7 @@ export interface UpdateDoctorRequest {
 }
 
 export interface UpsertDoctorWorkingHourRequest {
-  dayOfWeek: number;
+  dayOfWeek: DayOfWeekValue;
   startTime: string;
   endTime: string;
   isActive: boolean;
@@ -262,7 +291,7 @@ export interface AppointmentResponse {
 
 export interface CreateAppointmentRequest {
   petId: string;
-  doctorId: string;
+  doctorId?: string | null;
   /** Assigned by the clinic when omitted during owner self-booking. */
   roomId?: string | null;
   serviceId: string;
@@ -271,6 +300,25 @@ export interface CreateAppointmentRequest {
   reason?: string | null;
   notes?: string | null;
   ownerId?: string | null;
+}
+
+export interface FindAvailableAppointmentSlotsRequest {
+  serviceId: string;
+  from: string;
+  to: string;
+  doctorId?: string | null;
+  stepMinutes?: number;
+  maxSlots?: number;
+}
+
+export interface AvailableAppointmentSlotResponse {
+  startAt: string;
+  endAt: string;
+  doctorId: string;
+  doctorFullName: string;
+  roomId: string;
+  roomName: string;
+  isAutoAssignedDoctor: boolean;
 }
 
 export interface UpdateAppointmentRequest {

@@ -1,9 +1,8 @@
-import { useEffect, useState, type FormEvent, type ReactNode, type SVGProps } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode, type SVGProps } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import {
   AlertCircle,
   BarChart3,
-  Bell,
   Calendar,
   CheckCircle2,
   Clock3,
@@ -37,9 +36,10 @@ import {
 } from 'recharts';
 import { useAuth } from '../../auth/AuthContext';
 import { canManageAdmins, canManageDoctors, canDeleteUser, roleLabel } from '../../auth/roles';
-import { formatDate } from '../../data/formatters';
+import { calcAge, formatDate, formatTime, mapAppointmentStatus } from '../../data/formatters';
 import {
   appointmentsApi,
+  authApi,
   clinicApi,
   doctorsApi,
   medicalRecordsApi,
@@ -110,6 +110,7 @@ import {
   Surface,
   UploadAvatar,
 } from '../../components/redesign/VetVikUI';
+import { GalleryImagePicker } from '../../components/redesign/GalleryImagePicker';
 import type {
   AppointmentResponse,
   ClinicSettingsResponse,
@@ -131,6 +132,7 @@ import {
   buildPetNotes,
   OTHER_BREED_VALUE,
   parseCustomBreedFromNotes,
+  resolvePetBreedName,
 } from '../../utils/petFormHelpers';
 
 function DataState({ loading, error, children }: Readonly<{ loading: boolean; error: string | null; children: ReactNode }>) {
@@ -149,7 +151,21 @@ function DataState({ loading, error, children }: Readonly<{ loading: boolean; er
   return <>{children}</>;
 }
 
-const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+const DAY_LABELS: Record<string, string> = {
+  Sunday: 'Sunday',
+  Monday: 'Monday',
+  Tuesday: 'Tuesday',
+  Wednesday: 'Wednesday',
+  Thursday: 'Thursday',
+  Friday: 'Friday',
+  Saturday: 'Saturday',
+};
+
+function dayLabel(dayOfWeek: number | string): string {
+  if (typeof dayOfWeek === 'number') return DAY_NAMES[dayOfWeek] ?? String(dayOfWeek);
+  return DAY_LABELS[dayOfWeek] ?? dayOfWeek;
+}
 
 function toDateInputValue(value?: string | null): string {
   if (!value) return '';
@@ -179,6 +195,10 @@ function toggleSelection(values: string[], value: string): string[] {
   return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
 }
 
+function isOpenAppointmentStatus(status: string): boolean {
+  return status === 'Awaiting' || status === 'Accepted';
+}
+
 function buildPetDraft(pet?: PetResponse) {
   const { customBreed, careNotes } = parseCustomBreedFromNotes(pet?.notes);
   const usesCustomBreed = !pet?.breedId && Boolean(customBreed);
@@ -192,6 +212,7 @@ function buildPetDraft(pet?: PetResponse) {
     birthDate: toDateInputValue(pet?.birthDate),
     weight: pet?.weight != null ? String(pet.weight) : '',
     notes: careNotes,
+    photoUrl: pet?.photoUrl ?? null,
   };
 }
 
@@ -251,7 +272,7 @@ function PetFormDialog({
       sex: draft.sex as UpsertPetRequest['sex'],
       birthDate: draft.birthDate || null,
       weight,
-      photoUrl: null,
+      photoUrl: draft.photoUrl,
       notes: buildPetNotes(usesCustomBreed ? draft.customBreed : '', draft.notes),
     };
 
@@ -269,10 +290,24 @@ function PetFormDialog({
     <FormDialog
       open={open}
       title={pet ? 'Edit pet profile' : 'Add a pet'}
-      description="Save the pet identity, species and care notes directly to the clinic backend."
+      description="Save the pet identity, species and care notes."
       onClose={onClose}
     >
       <form onSubmit={handleSubmit}>
+        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <PetAvatar
+            species={speciesState.data.find((item) => item.id === draft.speciesId)?.name ?? 'Pet'}
+            photoUrl={draft.photoUrl}
+            onPhotoSelect={(photoUrl) => setDraft((prev) => ({ ...prev, photoUrl }))}
+          />
+          <div>
+            <p className="text-sm font-bold text-slate-200">Pet photo</p>
+            <p className="mt-1 text-xs text-slate-400">Choose a photo from your gallery for this pet profile.</p>
+            <div className="mt-3">
+              <UploadAvatar onChange={(photoUrl) => setDraft((prev) => ({ ...prev, photoUrl }))} />
+            </div>
+          </div>
+        </div>
         <FormGrid columns={2}>
           <FormField
             label="Pet name"
@@ -382,12 +417,77 @@ function formatDoctorOptionLabel(doctor: DoctorResponse): string {
   return specializations ? `${name} · ${specializations}` : name;
 }
 
+type BookingMode = 'specific-doctor' | 'first-available';
+type TimeWindowId = 'any' | 'morning' | 'afternoon' | 'evening';
+
+interface TimeWindowConfig {
+  id: TimeWindowId;
+  label: string;
+  fromMinutes: number;
+  toMinutes: number;
+}
+
+interface SlotCandidate {
+  value: string;
+  doctorId: string;
+  roomId: string;
+  startsAt: Date;
+  doctorName: string;
+  roomName: string;
+}
+
+interface AppointmentClient {
+  ownerId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone?: string | null;
+}
+
+interface AppointmentPet {
+  id: string;
+  name: string;
+  ownerId: string;
+  ownerName?: string;
+}
+
+interface AppointmentService {
+  id: string;
+  name: string;
+  categoryId?: string;
+  categoryName?: string;
+  durationMinutes?: number;
+}
+
+const SLOT_INTERVAL_MINUTES = 30;
+const TIME_WINDOWS: TimeWindowConfig[] = [
+  { id: 'any', label: 'Any time', fromMinutes: 0, toMinutes: 24 * 60 },
+  { id: 'morning', label: 'Morning (08:00–12:00)', fromMinutes: 8 * 60, toMinutes: 12 * 60 },
+  { id: 'afternoon', label: 'Afternoon (12:00–16:00)', fromMinutes: 12 * 60, toMinutes: 16 * 60 },
+  { id: 'evening', label: 'Evening (16:00–20:00)', fromMinutes: 16 * 60, toMinutes: 20 * 60 },
+];
+
+function formatDateInput(value: Date): string {
+  const year = value.getFullYear();
+  const month = `${value.getMonth() + 1}`.padStart(2, '0');
+  const day = `${value.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateAtMinute(dateInput: string, minuteOfDay: number): Date {
+  const [year, month, day] = dateInput.split('-').map(Number);
+  const hours = Math.floor(minuteOfDay / 60);
+  const minutes = minuteOfDay % 60;
+  return new Date(year, (month || 1) - 1, day || 1, hours, minutes, 0, 0);
+}
+
 function AppointmentFormDialog({
   open,
   title,
   description,
   appointment,
   pets,
+  clients,
   doctors,
   rooms,
   services,
@@ -401,10 +501,11 @@ function AppointmentFormDialog({
   title: string;
   description: string;
   appointment?: AppointmentResponse | null;
-  pets: Array<{ id: string; name: string; ownerName?: string }>;
+  pets: AppointmentPet[];
+  clients?: AppointmentClient[];
   doctors: DoctorResponse[];
   rooms: Array<{ id: string; name: string }>;
-  services: Array<{ id: string; name: string; durationMinutes?: number }>;
+  services: AppointmentService[];
   loading: boolean;
   error: string | null;
   onClose: () => void;
@@ -412,31 +513,201 @@ function AppointmentFormDialog({
   variant?: 'owner' | 'clinic';
 }>) {
   const isOwnerBooking = variant === 'owner';
-  const bookableDoctors = doctors.filter((doctor) => doctor.isActive);
+  const bookableDoctors = useMemo(
+    () => doctors.filter((doctor) => doctor.isActive),
+    [doctors],
+  );
   const [draft, setDraft] = useState(() => buildAppointmentDraft(appointment));
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [bookingMode, setBookingMode] = useState<BookingMode>('first-available');
+  const [preferredDate, setPreferredDate] = useState(() => formatDateInput(new Date()));
+  const [timeWindow, setTimeWindow] = useState<TimeWindowId>('any');
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsError, setSlotsError] = useState<string | null>(null);
+  const [availableSlots, setAvailableSlots] = useState<SlotCandidate[]>([]);
+  const [ownerSearch, setOwnerSearch] = useState('');
+  const [selectedOwnerId, setSelectedOwnerId] = useState('');
+  const [serviceCategoryId, setServiceCategoryId] = useState<string>('all');
+
+  const initialOwnerIdFromAppointment = (appointment as AppointmentResponse | null)?.ownerId ?? '';
+  const initialOwnerIdFromPet = useMemo(() => {
+    if (!appointment) return '';
+    return pets.find((pet) => pet.id === appointment.petId)?.ownerId ?? '';
+  }, [appointment, pets]);
 
   useEffect(() => {
-    if (open) {
-      setDraft(buildAppointmentDraft(appointment));
-      setFieldErrors({});
+    if (!open) return;
+    setDraft(buildAppointmentDraft(appointment));
+    setFieldErrors({});
+    setBookingMode(isOwnerBooking ? 'specific-doctor' : 'first-available');
+    setPreferredDate(formatDateInput(appointment?.startAt ? new Date(appointment.startAt) : new Date()));
+    setTimeWindow('any');
+    setAvailableSlots([]);
+    setSlotsError(null);
+    setOwnerSearch('');
+    if (!isOwnerBooking) {
+      setSelectedOwnerId(initialOwnerIdFromAppointment || initialOwnerIdFromPet || '');
+    } else {
+      setSelectedOwnerId('');
     }
-  }, [appointment, open]);
+    const initialService = services.find((service) => service.id === appointment?.serviceId);
+    setServiceCategoryId(initialService?.categoryId ?? 'all');
+  }, [appointment, isOwnerBooking, open, initialOwnerIdFromAppointment, initialOwnerIdFromPet, services]);
+
+  const filteredClients = useMemo(() => {
+    if (!clients?.length) return [] as AppointmentClient[];
+    const query = ownerSearch.trim().toLowerCase();
+    if (!query) return clients;
+    return clients.filter((client) => {
+      const fullName = `${client.firstName} ${client.lastName}`.toLowerCase();
+      const reverseName = `${client.lastName} ${client.firstName}`.toLowerCase();
+      return (
+        fullName.includes(query) ||
+        reverseName.includes(query) ||
+        client.email.toLowerCase().includes(query) ||
+        (client.phone ?? '').toLowerCase().includes(query)
+      );
+    });
+  }, [clients, ownerSearch]);
+
+  const ownerScopedPets = useMemo(() => {
+    if (isOwnerBooking) return pets;
+    if (!selectedOwnerId) return [];
+    return pets.filter((pet) => pet.ownerId === selectedOwnerId);
+  }, [isOwnerBooking, pets, selectedOwnerId]);
+
+  const serviceCategories = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const service of services) {
+      if (service.categoryId && !map.has(service.categoryId)) {
+        map.set(service.categoryId, service.categoryName ?? 'Procedure');
+      }
+    }
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [services]);
+
+  const filteredServices = useMemo(() => {
+    if (serviceCategoryId === 'all') return services;
+    return services.filter((service) => service.categoryId === serviceCategoryId);
+  }, [services, serviceCategoryId]);
+
+  const selectedClient = clients?.find((client) => client.ownerId === selectedOwnerId) ?? null;
+
+  useEffect(() => {
+    if (!open) return;
+    if (!draft.serviceId || !preferredDate) {
+      setAvailableSlots([]);
+      setSlotsError(null);
+      return;
+    }
+    if (bookingMode === 'specific-doctor' && !draft.doctorId) {
+      setAvailableSlots([]);
+      setSlotsError(null);
+      return;
+    }
+
+    const selectedWindow = TIME_WINDOWS.find((window) => window.id === timeWindow) ?? TIME_WINDOWS[0];
+    const fromLocal = parseDateAtMinute(preferredDate, selectedWindow.fromMinutes);
+    const toLocal =
+      selectedWindow.toMinutes >= 24 * 60
+        ? new Date(fromLocal.getFullYear(), fromLocal.getMonth(), fromLocal.getDate() + 1, 0, 0, 0, 0)
+        : parseDateAtMinute(preferredDate, selectedWindow.toMinutes);
+
+    let isCancelled = false;
+    setSlotsLoading(true);
+    setSlotsError(null);
+
+    appointmentsApi
+      .availableSlots({
+        serviceId: draft.serviceId,
+        from: fromLocal.toISOString(),
+        to: toLocal.toISOString(),
+        doctorId: bookingMode === 'specific-doctor' ? draft.doctorId : null,
+        stepMinutes: SLOT_INTERVAL_MINUTES,
+        maxSlots: 60,
+      })
+      .then((apiSlots) => {
+        if (isCancelled) return;
+        const mapped = apiSlots
+          .map((slot) => {
+            const startsAt = new Date(slot.startAt);
+            if (Number.isNaN(startsAt.getTime())) return null;
+            const localValue = toDateTimeInputValue(slot.startAt);
+            if (!localValue) return null;
+            return {
+              value: `${slot.doctorId}|${slot.roomId}|${localValue}`,
+              doctorId: slot.doctorId,
+              roomId: slot.roomId,
+              startsAt,
+              doctorName: slot.doctorFullName,
+              roomName: slot.roomName,
+            } satisfies SlotCandidate;
+          })
+          .filter((slot): slot is SlotCandidate => Boolean(slot))
+          .sort((left, right) => left.startsAt.getTime() - right.startsAt.getTime());
+        setAvailableSlots(mapped);
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setAvailableSlots([]);
+          setSlotsError('Could not load available slots. Please try again.');
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setSlotsLoading(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [draft.doctorId, draft.serviceId, open, bookingMode, preferredDate, timeWindow]);
+
+  const selectedSlotValue = useMemo(() => {
+    if (!draft.doctorId || !draft.startAt) return '';
+    return `${draft.doctorId}|${draft.roomId || ''}|${draft.startAt}`;
+  }, [draft.doctorId, draft.roomId, draft.startAt]);
+
+  const slotOptions: SelectOption[] = useMemo(
+    () =>
+      availableSlots.map((slot) => {
+        const timeLabel = slot.startsAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return {
+          value: slot.value,
+          label: slot.roomName
+            ? `${timeLabel} · ${slot.doctorName} · ${slot.roomName}`
+            : `${timeLabel} · ${slot.doctorName}`,
+        };
+      }),
+    [availableSlots],
+  );
+
+  const handleSelectSlot = (slot: SlotCandidate) => {
+    setDraft((prev) => ({
+      ...prev,
+      doctorId: slot.doctorId,
+      roomId: isOwnerBooking ? prev.roomId : slot.roomId || prev.roomId,
+      startAt: toDateTimeInputValue(slot.startsAt.toISOString()),
+    }));
+  };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const nextErrors: Record<string, string> = {};
+    if (!isOwnerBooking && !selectedOwnerId) nextErrors.ownerId = 'Owner is required.';
     if (!draft.petId) nextErrors.petId = 'Pet is required.';
-    if (!draft.serviceId) nextErrors.serviceId = 'Service is required.';
-    if (!draft.doctorId) nextErrors.doctorId = 'Doctor is required.';
-    if (!isOwnerBooking && !draft.roomId) nextErrors.roomId = 'Room is required.';
+    if (!draft.serviceId) nextErrors.serviceId = 'Procedure is required.';
+    if (bookingMode === 'specific-doctor' && !draft.doctorId) {
+      nextErrors.doctorId = 'Doctor is required.';
+    }
     if (!draft.startAt) nextErrors.startAt = 'Start time is required.';
     setFieldErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
 
-    const payload = {
+    const payload: CreateAppointmentRequest = {
       petId: draft.petId,
-      doctorId: draft.doctorId,
+      doctorId: draft.doctorId || null,
       serviceId: draft.serviceId,
       startAt: new Date(draft.startAt).toISOString(),
       endAt: null,
@@ -445,75 +716,259 @@ function AppointmentFormDialog({
     };
 
     if (isOwnerBooking) {
-      await onSubmit(payload as CreateAppointmentRequest);
+      await onSubmit(payload);
       return;
     }
 
     await onSubmit({
       ...payload,
-      roomId: draft.roomId,
+      roomId: draft.roomId || null,
       notes: draft.notes.trim() || null,
+      ownerId: selectedOwnerId || null,
     });
   };
+
+  const handleSelectOwner = (ownerId: string) => {
+    setSelectedOwnerId(ownerId);
+    setDraft((prev) => ({ ...prev, petId: '', startAt: '' }));
+  };
+
+  const slotPlaceholder = !draft.serviceId
+    ? 'Select procedure first'
+    : slotsLoading
+      ? 'Loading available slots...'
+      : bookingMode === 'specific-doctor' && !draft.doctorId
+        ? 'Select doctor first'
+        : slotOptions.length
+          ? 'Pick a free slot'
+          : 'No free slots in selected window';
 
   return (
     <FormDialog open={open} title={title} description={description} onClose={onClose}>
       <form onSubmit={handleSubmit}>
+        {!isOwnerBooking ? (
+          <Surface className="mb-4 p-4">
+            <SectionHeader
+              title="Step 1 — Owner"
+              description="Search by name, surname, email or phone, then pick the client."
+            />
+            <FormField
+              label="Search owner"
+              value={ownerSearch}
+              onChange={setOwnerSearch}
+              placeholder="Type a name, surname, email or phone..."
+            />
+            {ownerSearch.trim() && !selectedOwnerId ? (
+              <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+                {filteredClients.length ? (
+                  filteredClients.slice(0, 12).map((client) => (
+                    <button
+                      key={client.ownerId}
+                      type="button"
+                      onClick={() => handleSelectOwner(client.ownerId)}
+                      className="block w-full rounded-2xl border border-slate-700 bg-slate-950/60 p-3 text-left transition hover:border-teal-400/60 hover:bg-slate-900"
+                    >
+                      <p className="font-black text-white">{client.firstName} {client.lastName}</p>
+                      <p className="text-xs text-slate-400">{client.email}{client.phone ? ` · ${client.phone}` : ''}</p>
+                    </button>
+                  ))
+                ) : (
+                  <p className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 text-sm text-slate-400">
+                    No clients match your search.
+                  </p>
+                )}
+              </div>
+            ) : null}
+            {selectedClient ? (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-teal-400/40 bg-teal-500/10 p-3">
+                <div>
+                  <p className="font-black text-white">{selectedClient.firstName} {selectedClient.lastName}</p>
+                  <p className="text-xs text-slate-300">{selectedClient.email}{selectedClient.phone ? ` · ${selectedClient.phone}` : ''}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedOwnerId('');
+                    setDraft((prev) => ({ ...prev, petId: '', startAt: '' }));
+                  }}
+                  className="rounded-2xl border border-slate-600 bg-slate-900 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-800"
+                >
+                  Change owner
+                </button>
+              </div>
+            ) : null}
+            {fieldErrors.ownerId ? (
+              <p className="mt-2 text-xs font-bold text-rose-400">{fieldErrors.ownerId}</p>
+            ) : null}
+          </Surface>
+        ) : null}
+
         <FormGrid columns={2}>
           <FormSelect
-            label="Pet"
+            label={isOwnerBooking ? 'Pet' : 'Step 2 — Pet'}
             value={draft.petId}
             onChange={(value) => setDraft((prev) => ({ ...prev, petId: value }))}
-            options={pets.map((pet) => ({
+            options={ownerScopedPets.map((pet) => ({
               value: pet.id,
-              label: pet.ownerName ? `${pet.name} · ${pet.ownerName}` : pet.name,
+              label: pet.ownerName && isOwnerBooking ? `${pet.name} · ${pet.ownerName}` : pet.name,
             }))}
-            placeholder={pets.length ? 'Select pet' : 'Add a pet first'}
+            placeholder={
+              !isOwnerBooking && !selectedOwnerId
+                ? 'Select an owner first'
+                : ownerScopedPets.length
+                  ? 'Select pet'
+                  : isOwnerBooking
+                    ? 'Add a pet first'
+                    : 'This client has no pets yet'
+            }
             error={fieldErrors.petId}
           />
+          {!isOwnerBooking && serviceCategories.length > 0 ? (
+            <FormSelect
+              label="Procedure type"
+              value={serviceCategoryId}
+              onChange={(value) => {
+                setServiceCategoryId(value);
+                setDraft((prev) => ({ ...prev, serviceId: '', startAt: '' }));
+              }}
+              options={[
+                { value: 'all', label: 'All procedure types' },
+                ...serviceCategories.map((category) => ({ value: category.id, label: category.name })),
+              ]}
+            />
+          ) : null}
           <FormSelect
-            label="Service"
+            label={isOwnerBooking ? 'Service' : 'Procedure'}
             value={draft.serviceId}
-            onChange={(value) => setDraft((prev) => ({ ...prev, serviceId: value }))}
-            options={services.map((service) => ({
+            onChange={(value) =>
+              setDraft((prev) => ({
+                ...prev,
+                serviceId: value,
+                startAt: '',
+                doctorId: bookingMode === 'specific-doctor' ? prev.doctorId : '',
+              }))
+            }
+            options={filteredServices.map((service) => ({
               value: service.id,
               label: service.durationMinutes ? `${service.name} · ${service.durationMinutes} min` : service.name,
             }))}
-            placeholder={services.length ? 'Select service' : 'No services available'}
+            placeholder={filteredServices.length ? 'Select procedure' : 'No procedures available'}
             error={fieldErrors.serviceId}
           />
           <FormSelect
-            label="Doctor"
-            value={draft.doctorId}
-            onChange={(value) => setDraft((prev) => ({ ...prev, doctorId: value }))}
-            options={bookableDoctors.map((doctor) => ({
-              value: doctor.id,
-              label: formatDoctorOptionLabel(doctor),
-            }))}
-            placeholder={bookableDoctors.length ? 'Select doctor' : 'No doctors available'}
-            error={fieldErrors.doctorId}
+            label={isOwnerBooking ? 'Booking preference' : 'Slot search mode'}
+            value={bookingMode}
+            onChange={(value) => {
+              const nextMode = value as BookingMode;
+              setBookingMode(nextMode);
+              setDraft((prev) => ({
+                ...prev,
+                startAt: '',
+                doctorId: nextMode === 'specific-doctor' ? prev.doctorId : '',
+              }));
+            }}
+            options={[
+              { value: 'first-available', label: 'Any doctor — search by time' },
+              { value: 'specific-doctor', label: 'Specific doctor — show their free hours' },
+            ]}
           />
+          {bookingMode === 'specific-doctor' ? (
+            <FormSelect
+              label="Doctor"
+              value={draft.doctorId}
+              onChange={(value) => setDraft((prev) => ({ ...prev, doctorId: value, startAt: '' }))}
+              options={bookableDoctors.map((doctor) => ({
+                value: doctor.id,
+                label: formatDoctorOptionLabel(doctor),
+              }))}
+              placeholder={bookableDoctors.length ? 'Select doctor' : 'No doctors available'}
+              error={fieldErrors.doctorId}
+            />
+          ) : null}
           {!isOwnerBooking ? (
             <FormSelect
-              label="Room"
+              label="Room (optional)"
               value={draft.roomId}
               onChange={(value) => setDraft((prev) => ({ ...prev, roomId: value }))}
-              options={rooms.map((room) => ({ value: room.id, label: room.name }))}
+              options={[
+                { value: '', label: 'Auto-assign free room' },
+                ...rooms.map((room) => ({ value: room.id, label: room.name })),
+              ]}
               placeholder={rooms.length ? 'Select room' : 'No rooms available'}
               error={fieldErrors.roomId}
             />
           ) : null}
           <FormField
-            label="Visit start"
-            type="datetime-local"
-            value={draft.startAt}
-            onChange={(value) => setDraft((prev) => ({ ...prev, startAt: value }))}
+            label="Preferred date"
+            type="date"
+            value={preferredDate}
+            onChange={(value) => {
+              setPreferredDate(value);
+              setDraft((prev) => ({ ...prev, startAt: '' }));
+            }}
+          />
+          <FormSelect
+            label="Preferred time"
+            value={timeWindow}
+            onChange={(value) => {
+              setTimeWindow(value as TimeWindowId);
+              setDraft((prev) => ({ ...prev, startAt: '' }));
+            }}
+            options={TIME_WINDOWS.map((window) => ({ value: window.id, label: window.label }))}
+          />
+          <FormSelect
+            label="Available slots"
+            value={selectedSlotValue}
+            onChange={(value) => {
+              const [doctorId, roomId, startAt] = value.split('|');
+              setDraft((prev) => ({
+                ...prev,
+                doctorId: doctorId || prev.doctorId,
+                roomId: !isOwnerBooking ? (roomId ?? prev.roomId) : prev.roomId,
+                startAt: startAt || '',
+              }));
+            }}
+            options={slotOptions}
+            placeholder={slotPlaceholder}
             error={fieldErrors.startAt}
           />
+          {availableSlots.length ? (
+            <div className="md:col-span-2">
+              <p className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-400">
+                Quick pick
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {availableSlots.slice(0, 12).map((slot) => {
+                  const slotValue = `${slot.doctorId}|${slot.roomId}|${toDateTimeInputValue(slot.startsAt.toISOString())}`;
+                  const isSelected = selectedSlotValue === slotValue;
+                  const slotTime = slot.startsAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                  return (
+                    <button
+                      key={slot.value}
+                      type="button"
+                      onClick={() => handleSelectSlot(slot)}
+                      className={`rounded-2xl border px-3 py-2 text-left text-xs transition ${
+                        isSelected
+                          ? 'border-teal-300 bg-teal-500/15 text-teal-100'
+                          : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-teal-500/60 hover:text-slate-100'
+                      }`}
+                    >
+                      <p className="font-black">{slotTime}</p>
+                      <p className="mt-0.5 truncate">{slot.doctorName}</p>
+                      <p className="truncate text-slate-400">{slot.roomName}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
         </FormGrid>
+        {slotsError ? (
+          <p className="mt-3 text-sm font-bold text-amber-300">{slotsError}</p>
+        ) : null}
         {isOwnerBooking ? (
           <p className="mt-4 text-sm leading-6 text-slate-400">
-            The clinic will assign an exam room after you submit the booking.
+            After you submit, the doctor receives this request and confirms it. Once confirmed, your appointment status changes to Accepted.
           </p>
         ) : null}
         <div className="mt-4">
@@ -539,13 +994,142 @@ function AppointmentFormDialog({
         <FormErrorMessage message={error} />
         <FormActions
           onCancel={onClose}
-          submitLabel={appointment ? 'Save appointment' : 'Create appointment'}
+          submitLabel={
+            appointment
+              ? 'Save appointment'
+              : isOwnerBooking
+                ? 'Send booking request'
+                : 'Create appointment'
+          }
           submittingLabel="Saving..."
           loading={loading}
         />
       </form>
     </FormDialog>
   );
+}
+
+function AppointmentDetailDialog({
+  appointment,
+  pets,
+  clients,
+  onClose,
+  onEdit,
+}: Readonly<{
+  appointment: AppointmentResponse | null;
+  pets: PetResponse[];
+  clients: Array<{ ownerId: string; firstName: string; lastName: string; email: string; phone?: string | null }>;
+  onClose: () => void;
+  onEdit?: (appointmentId: string) => void;
+}>) {
+  const open = Boolean(appointment);
+  if (!appointment) return null;
+
+  const pet = pets.find((item) => item.id === appointment.petId) ?? null;
+  const client = clients.find((item) => item.ownerId === appointment.ownerId) ?? null;
+  const guarantorNotes = parseGuarantorFromNotes(appointment.notes);
+  const breedName = pet ? resolvePetBreedName(pet.breedName, pet.notes) : '';
+  const careNotes = pet ? parseCustomBreedFromNotes(pet.notes).careNotes : '';
+
+  return (
+    <FormDialog
+      open={open}
+      title={`${appointment.petName} · ${appointment.serviceName}`}
+      description={`${formatDate(appointment.startAt)} at ${formatTime(appointment.startAt)} · ${appointment.doctorFullName}`}
+      onClose={onClose}
+      widthClassName="max-w-4xl"
+    >
+      <div className="grid gap-4 md:grid-cols-2">
+        <Surface className="p-5">
+          <SectionHeader title="Visit summary" />
+          <div className="space-y-2 text-sm text-slate-200">
+            <DetailRow label="Status"><StatusBadge status={mapAppointmentStatus(appointment.status)} /></DetailRow>
+            <DetailRow label="Procedure" value={appointment.serviceName} />
+            <DetailRow label="Doctor" value={appointment.doctorFullName} />
+            <DetailRow label="Room" value={appointment.roomName || '—'} />
+            <DetailRow label="Duration" value={`${appointment.serviceDurationMinutes} min`} />
+            <DetailRow label="Reason" value={appointment.reason || '—'} />
+            <DetailRow label="Notes" value={appointment.notes || '—'} />
+          </div>
+        </Surface>
+
+        <Surface className="p-5">
+          <SectionHeader title="Pet" description="Animal information for this visit." />
+          {pet ? (
+            <div className="flex gap-4">
+              <PetAvatar species={pet.speciesName} size="lg" photoUrl={pet.photoUrl} />
+              <div className="space-y-1 text-sm text-slate-200">
+                <p className="text-lg font-black text-white">{pet.name}</p>
+                <p className="text-slate-400">{pet.speciesName}{breedName ? ` · ${breedName}` : ''}</p>
+                <DetailRow label="Sex" value={pet.sex === 'Unknown' ? '—' : pet.sex} />
+                <DetailRow label="Age" value={pet.birthDate ? `${calcAge(pet.birthDate)} year(s)` : '—'} />
+                <DetailRow label="Weight" value={pet.weight != null ? `${pet.weight} kg` : '—'} />
+                {careNotes ? <DetailRow label="Care notes" value={careNotes} /> : null}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">Pet record not available.</p>
+          )}
+        </Surface>
+
+        <Surface className="p-5">
+          <SectionHeader title="Owner" description="Primary client for this animal." />
+          {client ? (
+            <div className="space-y-1 text-sm text-slate-200">
+              <p className="text-lg font-black text-white">{client.firstName} {client.lastName}</p>
+              <DetailRow label="Email" value={client.email} />
+              <DetailRow label="Phone" value={client.phone || '—'} />
+              <DetailRow label="Owner ID" value={client.ownerId.slice(0, 8) + '…'} />
+            </div>
+          ) : (
+            <div className="text-sm text-slate-200">
+              <p className="font-black text-white">{appointment.ownerFullName}</p>
+              <p className="mt-1 text-slate-400">Owner directory entry not loaded.</p>
+            </div>
+          )}
+        </Surface>
+
+        <Surface className="p-5">
+          <SectionHeader title="Guarantor" description="Person responsible for this visit, if different from the owner." />
+          {guarantorNotes ? (
+            <p className="rounded-2xl border border-slate-700 bg-slate-950/60 p-3 text-sm text-slate-100">
+              {guarantorNotes}
+            </p>
+          ) : (
+            <p className="text-sm text-slate-400">
+              No guarantor on record. Add a line starting with “Guarantor:” to the visit notes to capture one.
+            </p>
+          )}
+        </Surface>
+      </div>
+      <div className="mt-5 flex flex-wrap justify-end gap-3 border-t border-slate-800 pt-5">
+        <PrimaryButton variant="ghost" onClick={onClose}>Close</PrimaryButton>
+        {onEdit ? (
+          <PrimaryButton icon={Edit3} onClick={() => onEdit(appointment.id)}>Edit appointment</PrimaryButton>
+        ) : null}
+      </div>
+    </FormDialog>
+  );
+}
+
+function DetailRow({ label, value, children }: Readonly<{ label: string; value?: string; children?: ReactNode }>) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <span className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">{label}</span>
+      {children ?? <span className="text-sm font-semibold text-slate-100">{value}</span>}
+    </div>
+  );
+}
+
+function parseGuarantorFromNotes(notes?: string | null): string | null {
+  if (!notes) return null;
+  const lines = notes.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const match = /^(guarantor|поручник|guarant\.)\s*[:-]\s*(.+)$/i.exec(trimmed);
+    if (match) return match[2].trim();
+  }
+  return null;
 }
 
 function buildMedicalRecordDraft(record?: MedicalRecordResponse | null) {
@@ -834,6 +1418,8 @@ function ClinicSettingsEditor({
     description: settings.description ?? '',
     workingHours: settings.workingHours,
   });
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [logoError, setLogoError] = useState<string | null>(null);
 
   useEffect(() => {
     setDraft({
@@ -850,7 +1436,7 @@ function ClinicSettingsEditor({
     ? draft.workingHours
     : DAY_NAMES.map((_, index) => ({
         id: String(index),
-        dayOfWeek: index,
+        dayOfWeek: DAY_NAMES[index],
         openTime: '09:00',
         closeTime: '18:00',
         isWorkingDay: index !== 0,
@@ -893,8 +1479,8 @@ function ClinicSettingsEditor({
             <SectionHeader title="Working hours" description="Clinic-level availability by weekday." />
             <div className="grid gap-3">
               {workingHours.map((hour) => (
-                <div key={hour.dayOfWeek} className="grid items-center gap-3 rounded-2xl border border-slate-800 bg-slate-950 p-3 sm:grid-cols-[1fr_140px_140px_90px]">
-                  <p className="font-black text-slate-100">{DAY_NAMES[hour.dayOfWeek]}</p>
+                <div key={hour.dayOfWeek} className="grid items-center gap-3 rounded-2xl border border-slate-800 bg-slate-950 p-3 sm:grid-cols-[130px_140px_140px_90px]">
+                  <p className="text-sm font-black uppercase tracking-wide text-slate-100">{dayLabel(hour.dayOfWeek)}</p>
                   <input
                     value={timeValue(hour.openTime)}
                     onChange={(event) =>
@@ -937,7 +1523,7 @@ function ClinicSettingsEditor({
                       }
                       className="h-4 w-4 accent-teal-500"
                     />
-                    Open
+                    <span>Open</span>
                   </label>
                 </div>
               ))}
@@ -946,12 +1532,27 @@ function ClinicSettingsEditor({
         </div>
         <div className="space-y-5">
           <Surface className="p-5">
-            <SectionHeader title="Branding" description="Logo upload is not available in the current API, but the rest of clinic settings are live." />
-            <div className="rounded-[1.6rem] border border-dashed border-teal-200 bg-teal-50 p-8 text-center">
-              <Upload className="mx-auto h-8 w-8 text-teal-600" />
-              <p className="mt-3 font-black text-teal-900">Branding stays read-only</p>
-              <p className="mt-1 text-sm text-teal-700">No backend asset endpoint was found during the API audit.</p>
-            </div>
+            <SectionHeader title="Branding" description="Choose a clinic logo from your gallery for local preview." />
+            <GalleryImagePicker onSelect={setLogoPreview} onError={setLogoError}>
+              {(open) => (
+                <button
+                  type="button"
+                  onClick={open}
+                  className="w-full rounded-[1.6rem] border border-dashed border-teal-400/40 bg-teal-500/10 p-8 text-center transition hover:bg-teal-500/20"
+                >
+                  {logoPreview ? (
+                    <img src={logoPreview} alt="Clinic logo preview" className="mx-auto h-24 max-w-full object-contain" />
+                  ) : (
+                    <>
+                      <Upload className="mx-auto h-8 w-8 text-teal-200" />
+                      <p className="mt-3 font-black text-teal-100">Choose from gallery</p>
+                      <p className="mt-1 text-sm text-teal-200">Select a logo image from your device.</p>
+                    </>
+                  )}
+                </button>
+              )}
+            </GalleryImagePicker>
+            {logoError ? <p className="mt-3 text-sm font-bold text-rose-600">{logoError}</p> : null}
           </Surface>
           <MetricCard label="Default duration" value="Service based" caption="Derived from service setup" icon={Clock3} tone="amber" />
           <FormErrorMessage message={error} />
@@ -975,7 +1576,9 @@ export function RedesignedOwnerDashboard() {
 
   const ownerPets = petsState.data.map((p) => mapPet(p));
   const ownerAppointments = appointmentsState.data.map(mapAppointment);
-  const upcomingOwner = ownerAppointments.filter((a) => a.status === 'Scheduled');
+  const awaitingAppointments = ownerAppointments.filter((a) => a.status === 'Awaiting');
+  const acceptedAppointments = ownerAppointments.filter((a) => a.status === 'Accepted');
+  const upcomingOwner = ownerAppointments.filter((a) => isOpenAppointmentStatus(a.status));
   const records = recordsState.data.slice(0, 3).map(mapMedicalRecord);
   const vaccines = vaccinationsState.data.slice(0, 4).map(mapVaccination);
   const ownerGreeting = ownerPets[0]?.name
@@ -992,11 +1595,29 @@ export function RedesignedOwnerDashboard() {
         icon={PawPrint}
         actions={<PrimaryButton icon={Plus} onClick={() => navigate('/client/appointments')}>Book appointment</PrimaryButton>}
       />
+      {awaitingAppointments.length > 0 && (
+        <Surface className="border border-amber-400/30 bg-amber-500/10 p-5">
+          <SectionHeader
+            title={`${awaitingAppointments.length} booking request${awaitingAppointments.length > 1 ? 's' : ''} awaiting confirmation`}
+            description="The doctor hasn't confirmed yet. You'll see Accepted once they respond."
+            action={<PrimaryButton variant="secondary" icon={Calendar} onClick={() => navigate('/client/appointments')}>View all</PrimaryButton>}
+          />
+          <div className="mt-3 space-y-3">
+            {awaitingAppointments.map((appointment) => (
+              <AppointmentCard key={appointment.id} appointment={appointment} />
+            ))}
+          </div>
+        </Surface>
+      )}
       <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
         <div className="space-y-5">
           <Surface className="p-5">
-            <SectionHeader title="Next appointment" description="The most important care event is always surfaced first." action={<PrimaryButton variant="secondary" icon={Calendar} onClick={() => navigate('/client/appointments')}>Manage</PrimaryButton>} />
-            {upcomingOwner[0] ? <AppointmentCard appointment={upcomingOwner[0]} /> : <EmptyState title="No appointment yet" description="Book a visit and it will appear here." />}
+            <SectionHeader title="Next confirmed appointment" description="The most important care event is always surfaced first." action={<PrimaryButton variant="secondary" icon={Calendar} onClick={() => navigate('/client/appointments')}>Manage</PrimaryButton>} />
+            {acceptedAppointments[0]
+              ? <AppointmentCard appointment={acceptedAppointments[0]} />
+              : upcomingOwner[0]
+                ? <AppointmentCard appointment={upcomingOwner[0]} />
+                : <EmptyState title="No appointment yet" description="Book a visit and it will appear here." />}
           </Surface>
           <div className="grid gap-4 md:grid-cols-3">
             {ownerPets.map((pet) => (
@@ -1004,21 +1625,22 @@ export function RedesignedOwnerDashboard() {
             ))}
           </div>
           <Surface className="p-5">
-            <SectionHeader title="Recent medical updates" description="Clinical history as a readable care timeline." action={<button onClick={() => navigate('/client/medical-history')} className="text-sm font-bold text-teal-700">View all</button>} />
+            <SectionHeader title="Recent medical updates" description="Clinical history as a readable care timeline." action={<button onClick={() => navigate('/client/medical-history')} className="text-sm font-bold text-teal-300 hover:text-teal-200">View all</button>} />
             <MedicalTimeline records={records} />
           </Surface>
         </div>
         <div className="space-y-5">
           <MetricCard label="Pets in care" value={ownerPets.length} caption="Family profiles" icon={PawPrint} tone="teal" />
-          <MetricCard label="Upcoming" value={upcomingOwner.length} caption="Scheduled visits" icon={Calendar} tone="blue" />
+          <MetricCard label="Awaiting" value={awaitingAppointments.length} caption="Pending doctor confirmation" icon={AlertCircle} tone="amber" />
+          <MetricCard label="Confirmed" value={acceptedAppointments.length} caption="Accepted upcoming visits" icon={Calendar} tone="blue" />
           <Surface className="p-5">
             <SectionHeader title="Care reminders" />
             <div className="space-y-3">
               {vaccines.map((vaccine) => (
-                <div key={vaccine.id} className="flex items-center justify-between rounded-2xl bg-slate-50 p-3">
+                <div key={vaccine.id} className="flex items-center justify-between rounded-2xl border border-slate-700/60 bg-slate-800/60 p-3">
                   <div>
-                    <p className="font-black text-slate-900">{vaccine.vaccineName}</p>
-                    <p className="text-sm text-slate-500">{vaccine.nextDue}</p>
+                    <p className="font-black text-white">{vaccine.vaccineName}</p>
+                    <p className="text-sm text-slate-400">{vaccine.nextDue}</p>
                   </div>
                   <StatusBadge status={vaccine.status} />
                 </div>
@@ -1141,9 +1763,17 @@ export function RedesignedPetProfile() {
   const [editingPet, setEditingPet] = useState(false);
   const [savingPet, setSavingPet] = useState(false);
   const [petError, setPetError] = useState<string | null>(null);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [savingPhoto, setSavingPhoto] = useState(false);
+
+  useEffect(() => {
+    setPhotoUrl(petRaw?.photoUrl ?? null);
+    setPhotoError(null);
+  }, [petRaw?.id, petRaw?.photoUrl]);
 
   if (!pet) {
-    return <EmptyState title="Pet not found" description="This pet profile is unavailable." />;
+    return <EmptyState title="Pet not found" description="This pet profile could not be loaded." />;
   }
 
   const handleSavePet = async (body: Omit<UpsertPetRequest, 'ownerId'>) => {
@@ -1169,6 +1799,39 @@ export function RedesignedPetProfile() {
     }
   };
 
+  const handlePhotoSelect = async (nextPhotoUrl: string) => {
+    if (!petRaw) return;
+    const ownerId = petRaw.ownerId ?? currentUserState.data.profileId;
+    if (!ownerId) {
+      setPhotoError('Owner profile is missing. Please sign out and sign in again.');
+      return;
+    }
+
+    setPhotoUrl(nextPhotoUrl);
+    setSavingPhoto(true);
+    setPhotoError(null);
+    try {
+      await petsApi.update(petRaw.id, {
+        ownerId,
+        speciesId: petRaw.speciesId,
+        breedId: petRaw.breedId ?? null,
+        name: petRaw.name,
+        sex: petRaw.sex,
+        birthDate: petRaw.birthDate ?? null,
+        weight: petRaw.weight ?? null,
+        photoUrl: nextPhotoUrl,
+        notes: petRaw.notes ?? null,
+      });
+      petsState.reload();
+      petState.reload();
+    } catch (error) {
+      setPhotoUrl(petRaw.photoUrl ?? null);
+      setPhotoError(formatApiError(error, 'Could not update the pet photo.'));
+    } finally {
+      setSavingPhoto(false);
+    }
+  };
+
   return (
     <DataState loading={petsState.loading || petState.loading} error={petsState.error ?? petState.error}>
     <div className="space-y-6">
@@ -1176,14 +1839,25 @@ export function RedesignedPetProfile() {
         <div className="absolute right-0 top-0 h-56 w-56 rounded-full bg-teal-100 blur-3xl" />
         <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-            <PetAvatar species={pet.species} size="xl" />
+            <PetAvatar
+              species={pet.species}
+              size="xl"
+              photoUrl={photoUrl}
+              onPhotoSelect={handlePhotoSelect}
+              onPhotoError={setPhotoError}
+            />
             <div>
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <StatusBadge status={pet.healthStatus} />
-                <UploadAvatar />
+                <UploadAvatar
+                  onChange={handlePhotoSelect}
+                  onError={setPhotoError}
+                  disabled={savingPhoto}
+                />
               </div>
-              <h1 className="text-5xl font-black tracking-[-0.07em] text-slate-950">{pet.name}</h1>
-              <p className="mt-2 text-slate-600">{pet.breed} · {pet.age} years · {pet.gender} · {pet.weight}</p>
+              {photoError ? <p className="mb-2 text-xs font-bold text-rose-600">{photoError}</p> : null}
+              <h1 className="text-5xl font-black tracking-[-0.07em] text-white">{pet.name}</h1>
+              <p className="mt-2 text-slate-300">{pet.breed} · {pet.age} years · {pet.gender} · {pet.weight}</p>
               <p className="mt-1 text-sm text-slate-400">Microchip: {pet.microchip ?? 'Not registered'}</p>
             </div>
           </div>
@@ -1211,12 +1885,12 @@ export function RedesignedPetProfile() {
             <SectionHeader title="Vaccinations" />
             <div className="space-y-3">
               {petVaccines.map((vaccine) => (
-                <div key={vaccine.id} className="rounded-2xl bg-slate-50 p-3">
+                <div key={vaccine.id} className="rounded-2xl border border-slate-700/60 bg-slate-800/60 p-3">
                   <div className="flex items-center justify-between">
-                    <p className="font-black text-slate-900">{vaccine.vaccineName}</p>
+                    <p className="font-black text-white">{vaccine.vaccineName}</p>
                     <StatusBadge status={vaccine.status} />
                   </div>
-                  <p className="mt-1 text-sm text-slate-500">Next due: {vaccine.nextDue}</p>
+                  <p className="mt-1 text-sm text-slate-400">Next due: {vaccine.nextDue}</p>
                 </div>
               ))}
             </div>
@@ -1250,6 +1924,30 @@ export function RedesignedOwnerAppointments() {
   const [bookingOpen, setBookingOpen] = useState(false);
   const [savingBooking, setSavingBooking] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState('All');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredAppointments = useMemo(() => {
+    const normalizedSearch = searchQuery.trim().toLowerCase();
+    return ownerAppointments.filter((appointment) => {
+      const matchesFilter = activeFilter === 'All' ? true : appointment.status === activeFilter;
+      if (!matchesFilter) return false;
+      if (!normalizedSearch) return true;
+
+      const searchableText = [
+        appointment.petName,
+        appointment.doctorName,
+        appointment.service,
+        appointment.notes,
+        appointment.date,
+        appointment.time,
+      ]
+        .join(' ')
+        .toLowerCase();
+
+      return searchableText.includes(normalizedSearch);
+    });
+  }, [activeFilter, ownerAppointments, searchQuery]);
 
   const openBooking = () => {
     if (!petsState.data.length) {
@@ -1285,14 +1983,21 @@ export function RedesignedOwnerAppointments() {
     >
     <div className="space-y-6">
       <PageHeader eyebrow="Appointments" title="Book, review, and cancel visits." description="Workflow-focused appointment management for pet owners, with no distracting charts." icon={Calendar} actions={<PrimaryButton icon={Plus} disabled={!bookingReady} onClick={openBooking}>New booking</PrimaryButton>} />
-      <FilterBar filters={['All', 'Scheduled', 'Completed', 'Cancelled']} searchPlaceholder="Search appointment, pet, doctor..." />
+      <FilterBar
+        filters={['All', 'Awaiting', 'Accepted', 'Completed', 'Cancelled']}
+        activeFilter={activeFilter}
+        onFilterChange={setActiveFilter}
+        searchPlaceholder="Search appointment, pet, doctor..."
+        searchValue={searchQuery}
+        onSearchChange={setSearchQuery}
+      />
       <div className="grid gap-4">
-        {ownerAppointments.map((appointment) => (
+        {filteredAppointments.map((appointment) => (
           <AppointmentCard
             key={appointment.id}
             appointment={appointment}
             actions={
-              appointment.status === 'Scheduled' ? (
+              isOpenAppointmentStatus(appointment.status) ? (
                 <PrimaryButton variant="secondary" disabled={busyId === appointment.id} onClick={() => cancel(appointment.id, 'Cancelled by owner')}>
                   Cancel visit
                 </PrimaryButton>
@@ -1301,10 +2006,14 @@ export function RedesignedOwnerAppointments() {
           />
         ))}
       </div>
-      {!ownerAppointments.length ? (
+      {!filteredAppointments.length ? (
         <EmptyState
-          title="No appointments yet"
-          description="Book the first visit for one of your pets and it will show up in this timeline."
+          title={ownerAppointments.length ? 'No results for current filters' : 'No appointments yet'}
+          description={
+            ownerAppointments.length
+              ? 'Try a different status or search phrase.'
+              : 'Book the first visit for one of your pets and it will show up in this timeline.'
+          }
           action={<PrimaryButton icon={Plus} disabled={!bookingReady} onClick={openBooking}>Book appointment</PrimaryButton>}
         />
       ) : null}
@@ -1312,14 +2021,16 @@ export function RedesignedOwnerAppointments() {
     <AppointmentFormDialog
       open={bookingOpen}
       title="Book appointment"
-      description="Choose your pet, service, doctor and the visit start time."
+      description="Choose pet, service and preferred slot. The doctor confirms your request before it becomes Accepted."
       variant="owner"
-      pets={petsState.data.map((pet) => ({ id: pet.id, name: pet.name }))}
+      pets={petsState.data.map((pet) => ({ id: pet.id, name: pet.name, ownerId: pet.ownerId, ownerName: pet.ownerFullName }))}
       doctors={doctorsState.data}
       rooms={[]}
       services={servicesState.data.map((service) => ({
         id: service.id,
         name: service.name,
+        categoryId: service.categoryId,
+        categoryName: service.categoryName,
         durationMinutes: service.durationMinutes,
       }))}
       loading={savingBooking}
@@ -1354,14 +2065,17 @@ export function RedesignedDoctorDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const appointmentsState = useDoctorAppointments();
+  const { confirm, reject, busyId } = useAppointmentActions(() => appointmentsState.reload());
   const doctorAppointments = appointmentsState.data.map(mapAppointment);
+  const pendingRequests = doctorAppointments.filter((a) => a.status === 'Awaiting');
+  const acceptedAppointments = doctorAppointments.filter((a) => a.status === 'Accepted');
   const quickPets = doctorAppointments.slice(0, 4).map((a) => ({
     id: a.petId,
     name: a.petName,
     species: a.petSpecies,
     breed: a.service,
   }));
-  const nextNoteAppointment = appointmentsState.data.find((item) => item.status === 'Scheduled') ?? appointmentsState.data[0];
+  const nextNoteAppointment = appointmentsState.data.find((item) => isOpenAppointmentStatus(mapAppointment(item).status)) ?? appointmentsState.data[0];
 
   return (
     <DataState loading={appointmentsState.loading} error={appointmentsState.error}>
@@ -1381,18 +2095,45 @@ export function RedesignedDoctorDashboard() {
           </PrimaryButton>
         }
       />
+      {pendingRequests.length > 0 && (
+        <Surface className="border border-amber-400/30 bg-amber-500/10 p-5">
+          <SectionHeader
+            title={`New requests — ${pendingRequests.length} awaiting your response`}
+            description="Accept or reject each booking request from clients."
+            action={<PrimaryButton variant="secondary" icon={Calendar} onClick={() => navigate('/doctor/appointments')}>All appointments</PrimaryButton>}
+          />
+          <div className="mt-3 space-y-3">
+            {pendingRequests.map((appointment) => (
+              <AppointmentCard
+                key={appointment.id}
+                appointment={appointment}
+                actions={
+                  <>
+                    <PrimaryButton disabled={busyId === appointment.id} onClick={() => confirm(appointment.id)}>
+                      Accept
+                    </PrimaryButton>
+                    <PrimaryButton variant="secondary" disabled={busyId === appointment.id} onClick={() => reject(appointment.id, 'Rejected by doctor')}>
+                      Reject
+                    </PrimaryButton>
+                  </>
+                }
+              />
+            ))}
+          </div>
+        </Surface>
+      )}
       <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
         <div className="space-y-5">
           <Surface className="p-5">
-            <SectionHeader title="Today's schedule" action={<PrimaryButton variant="secondary" icon={Calendar} onClick={() => navigate('/doctor/schedule')}>Full schedule</PrimaryButton>} />
+            <SectionHeader title="Accepted — upcoming schedule" action={<PrimaryButton variant="secondary" icon={Calendar} onClick={() => navigate('/doctor/schedule')}>Full schedule</PrimaryButton>} />
             <div className="space-y-3">
-              {doctorAppointments.map((appointment) => (
+              {acceptedAppointments.length ? acceptedAppointments.map((appointment) => (
                 <AppointmentCard
                   key={appointment.id}
                   appointment={appointment}
                   actions={<PrimaryButton variant="secondary" icon={FileText} onClick={() => navigate(`/doctor/notes/${appointment.id}`)}>Open note</PrimaryButton>}
                 />
-              ))}
+              )) : <p className="py-4 text-center text-sm text-slate-400">No accepted appointments yet.</p>}
             </div>
           </Surface>
           <Surface className="p-5">
@@ -1400,24 +2141,24 @@ export function RedesignedDoctorDashboard() {
             <div className="grid gap-3 md:grid-cols-2">
               {doctorAppointments.slice(0, 4).map((appointment) => (
                 <button key={appointment.id} type="button" onClick={() => navigate(`/doctor/notes/${appointment.id}`)} className="text-left">
-                  <InsightItem icon={FileText} tone={appointment.status === 'In progress' ? 'amber' : 'teal'} title={`${appointment.petName} · ${appointment.service}`} description="Open the live appointment note and complete the backend medical record." />
+                  <InsightItem icon={FileText} tone={appointment.status === 'In progress' ? 'amber' : 'teal'} title={`${appointment.petName} · ${appointment.service}`} description="Open the appointment note and complete the medical record." />
                 </button>
               ))}
             </div>
           </Surface>
         </div>
         <div className="space-y-5">
-          <MetricCard label="Next visit" value={doctorAppointments[0]?.time ?? '—'} caption={doctorAppointments[0] ? `${doctorAppointments[0].petName}` : 'No visits'} icon={Clock3} tone="teal" />
-          <MetricCard label="Notes due" value={doctorAppointments.filter((a) => a.status === 'Scheduled').length} caption="Before end of day" icon={FileText} tone="amber" />
+          <MetricCard label="Awaiting response" value={pendingRequests.length} caption="New booking requests" icon={AlertCircle} tone="amber" />
+          <MetricCard label="Accepted" value={acceptedAppointments.length} caption="Upcoming confirmed visits" icon={Calendar} tone="teal" />
           <Surface className="p-5">
             <SectionHeader title="Patient quick access" />
             <div className="space-y-3">
               {quickPets.map((pet) => (
-                <div key={pet.id} className="flex items-center gap-3 rounded-2xl bg-slate-50 p-3">
-                  <PetAvatar species={pet.species} size="sm" />
+                <div key={pet.id} className="flex items-center gap-3 rounded-2xl border border-slate-700/60 bg-slate-800/60 p-3">
+                  <PetAvatar species={pet.species} size="sm" photoUrl={pet.photoUrl} />
                   <div>
-                    <p className="font-black text-slate-950">{pet.name}</p>
-                    <p className="text-sm text-slate-500">{pet.breed}</p>
+                    <p className="font-black text-white">{pet.name}</p>
+                    <p className="text-sm text-slate-400">{pet.breed}</p>
                   </div>
                 </div>
               ))}
@@ -1430,34 +2171,89 @@ export function RedesignedDoctorDashboard() {
   );
 }
 
+const DOCTOR_SCHEDULE_RANGES = ['Today', 'Week', 'Month'] as const;
+type DoctorScheduleRange = (typeof DOCTOR_SCHEDULE_RANGES)[number];
+
 export function RedesignedDoctorSchedule() {
   const appointmentsState = useDoctorAppointments();
-  const doctorAppointments = appointmentsState.data.map(mapAppointment);
+  const doctorAppointments = useMemo(() => appointmentsState.data.map(mapAppointment), [appointmentsState.data]);
+  const [scheduleRange, setScheduleRange] = useState<DoctorScheduleRange>('Today');
+  const [scheduleSearch, setScheduleSearch] = useState('');
+
+  const visibleAppointments = useMemo(() => {
+    const now = new Date();
+    const startKey = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    let endKey: number;
+    if (scheduleRange === 'Today') {
+      endKey = startKey + 86_400_000;
+    } else if (scheduleRange === 'Week') {
+      endKey = startKey + 7 * 86_400_000;
+    } else {
+      endKey = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
+    }
+    const search = scheduleSearch.trim().toLowerCase();
+    return doctorAppointments.filter((appointment) => {
+      const startMs = new Date(appointment.startAt).getTime();
+      if (!Number.isFinite(startMs) || startMs < startKey || startMs >= endKey) return false;
+      if (!search) return true;
+      const haystack = `${appointment.petName} ${appointment.ownerName} ${appointment.service} ${appointment.roomName}`.toLowerCase();
+      return haystack.includes(search);
+    });
+  }, [doctorAppointments, scheduleRange, scheduleSearch]);
 
   return (
     <DataState loading={appointmentsState.loading} error={appointmentsState.error}>
     <div className="space-y-6">
       <PageHeader eyebrow="Schedule" title="A visual day plan for real clinical work." description="Timeline blocks, appointment context, quick actions, and a mobile agenda fallback." icon={Calendar} />
-      <FilterBar filters={['Today', 'Week', 'Month', 'Scheduled', 'In progress']} searchPlaceholder="Search schedule..." />
-      <CalendarGrid appointments={doctorAppointments} />
+      <FilterBar
+        filters={[...DOCTOR_SCHEDULE_RANGES]}
+        activeFilter={scheduleRange}
+        onFilterChange={(value) => setScheduleRange(value as DoctorScheduleRange)}
+        searchValue={scheduleSearch}
+        onSearchChange={setScheduleSearch}
+        searchPlaceholder="Search pet, owner, service, room..."
+      />
+      <CalendarGrid appointments={visibleAppointments} />
     </div>
     </DataState>
   );
 }
 
+const DOCTOR_APPOINTMENT_FILTERS = ['All', 'Awaiting', 'Accepted', 'Completed', 'Cancelled'] as const;
+type DoctorAppointmentFilter = (typeof DOCTOR_APPOINTMENT_FILTERS)[number];
+
 export function RedesignedDoctorAppointments() {
   const appointmentsState = useDoctorAppointments();
   const navigate = useNavigate();
-  const { complete, busyId } = useAppointmentActions(() => appointmentsState.reload());
-  const doctorAppointments = appointmentsState.data.map(mapAppointment);
+  const { confirm, reject, complete, cancel, busyId } = useAppointmentActions(() => appointmentsState.reload());
+  const doctorAppointments = useMemo(() => appointmentsState.data.map(mapAppointment), [appointmentsState.data]);
+  const [filter, setFilter] = useState<DoctorAppointmentFilter>('All');
+  const [search, setSearch] = useState('');
+
+  const filteredAppointments = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return doctorAppointments.filter((appointment) => {
+      if (filter !== 'All' && appointment.status !== filter) return false;
+      if (!query) return true;
+      const haystack = `${appointment.petName} ${appointment.ownerName} ${appointment.service} ${appointment.reason}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [doctorAppointments, filter, search]);
 
   return (
     <DataState loading={appointmentsState.loading} error={appointmentsState.error}>
     <div className="space-y-6">
       <PageHeader eyebrow="Doctor appointments" title="Clinical queue with patient and owner context." description="Time, reason, status, and actions remain visible without table fatigue." icon={ClipboardIcon} />
-      <FilterBar filters={['All', 'Today', 'Scheduled', 'In progress', 'Completed']} searchPlaceholder="Search patient, owner, reason..." />
+      <FilterBar
+        filters={[...DOCTOR_APPOINTMENT_FILTERS]}
+        activeFilter={filter}
+        onFilterChange={(value) => setFilter(value as DoctorAppointmentFilter)}
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search patient, owner, reason..."
+      />
       <div className="grid gap-4">
-        {doctorAppointments.map((appointment) => (
+        {filteredAppointments.map((appointment) => (
           <AppointmentCard
             key={appointment.id}
             appointment={appointment}
@@ -1466,10 +2262,39 @@ export function RedesignedDoctorAppointments() {
                 <PrimaryButton variant="secondary" icon={FileText} onClick={() => navigate(`/doctor/notes/${appointment.id}`)}>
                   Open note
                 </PrimaryButton>
-                {appointment.status === 'Scheduled' ? (
-                  <PrimaryButton disabled={busyId === appointment.id} onClick={() => complete(appointment.id)}>
-                    Complete
-                  </PrimaryButton>
+                {appointment.status === 'Awaiting' ? (
+                  <>
+                    <PrimaryButton
+                      disabled={busyId === appointment.id}
+                      onClick={() => confirm(appointment.id)}
+                    >
+                      Accept
+                    </PrimaryButton>
+                    <PrimaryButton
+                      variant="secondary"
+                      disabled={busyId === appointment.id}
+                      onClick={() => reject(appointment.id, 'Rejected by doctor')}
+                    >
+                      Reject
+                    </PrimaryButton>
+                  </>
+                ) : null}
+                {appointment.status === 'Accepted' ? (
+                  <>
+                    <PrimaryButton
+                      disabled={busyId === appointment.id}
+                      onClick={() => complete(appointment.id)}
+                    >
+                      Complete
+                    </PrimaryButton>
+                    <PrimaryButton
+                      variant="secondary"
+                      disabled={busyId === appointment.id}
+                      onClick={() => cancel(appointment.id, 'Cancelled by doctor')}
+                    >
+                      Cancel
+                    </PrimaryButton>
+                  </>
                 ) : null}
               </>
             }
@@ -1497,7 +2322,7 @@ export function RedesignedMedicalNotes() {
   if (!params.id) {
     return (
       <div className="space-y-6">
-        <PageHeader eyebrow="Medical notes" title="Clinical documentation that feels structured, not cramped." description="Medical notes open from a specific backend appointment and save straight into the medical record." icon={HeartPulse} />
+        <PageHeader eyebrow="Medical notes" title="Clinical documentation that feels structured, not cramped." description="Open a scheduled appointment and save straight into the medical record." icon={HeartPulse} />
         <EmptyState
           title="Select a real appointment"
           description="Open a medical note from a live appointment to create or update the clinical record."
@@ -1550,26 +2375,26 @@ export function RedesignedMedicalNotes() {
       {appointmentView ? (
         <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
           <Surface className="p-5">
-            <SectionHeader title="Appointment context" description="Live appointment data linked to the active backend medical record." />
+            <SectionHeader title="Appointment context" description="Appointment data linked to the active medical record." />
             <div className="space-y-3">
-              <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="rounded-2xl border border-slate-700/60 bg-slate-800/60 p-4">
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Patient</p>
-                <p className="mt-1 font-black text-slate-950">{appointmentView.petName}</p>
-                <p className="text-sm text-slate-500">{appointmentView.petSpecies}</p>
+                <p className="mt-1 font-black text-white">{appointmentView.petName}</p>
+                <p className="text-sm text-slate-400">{appointmentView.petSpecies}</p>
               </div>
-              <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="rounded-2xl border border-slate-700/60 bg-slate-800/60 p-4">
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Visit</p>
-                <p className="mt-1 font-black text-slate-950">{appointmentView.service}</p>
-                <p className="text-sm text-slate-500">{appointmentView.date} at {appointmentView.time}</p>
+                <p className="mt-1 font-black text-white">{appointmentView.service}</p>
+                <p className="text-sm text-slate-400">{appointmentView.date} at {appointmentView.time}</p>
               </div>
-              <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="rounded-2xl border border-slate-700/60 bg-slate-800/60 p-4">
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Doctor</p>
-                <p className="mt-1 font-black text-slate-950">{appointmentView.doctorName}</p>
-                <p className="text-sm text-slate-500">{appointmentView.status}</p>
+                <p className="mt-1 font-black text-white">{appointmentView.doctorName}</p>
+                <p className="text-sm text-slate-400">{appointmentView.status}</p>
               </div>
               {appointmentView.notes ? (
-                <div className="flex items-start gap-2 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
-                  <AlertCircle className="mt-0.5 h-4 w-4 text-amber-500" />
+                <div className="flex items-start gap-2 rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+                  <AlertCircle className="mt-0.5 h-4 w-4 text-amber-300" />
                   <span>{appointmentView.notes}</span>
                 </div>
               ) : null}
@@ -1587,7 +2412,7 @@ export function RedesignedMedicalNotes() {
       ) : (
         <EmptyState
           title="Appointment not found"
-          description="This medical note route expects a real appointment id from the backend. The selected appointment is unavailable."
+          description="Open an appointment from the schedule to write its medical note."
         />
       )}
     </div>
@@ -1597,41 +2422,61 @@ export function RedesignedMedicalNotes() {
 
 export function RedesignedAdminDashboard() {
   const appointmentsState = useAdminAppointments();
-  const petsState = useAllPets();
   const doctorsState = useDoctors(true);
-  const servicesState = useServices();
-  const roomsState = useRooms();
+  const navigate = useNavigate();
   const allAppointments = appointmentsState.data.map(mapAppointment);
   const todayKey = new Date().toDateString();
-  const todayAppointments = allAppointments.filter((a) => new Date(a.date).toDateString() === todayKey || a.status === 'Scheduled');
-  const doctorViews = doctorsState.data.map((d) => mapDoctor(d, allAppointments.filter((a) => a.doctorId === d.id).length));
-  const [createOpen, setCreateOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-
-  const handleCreateAppointment = async (body: CreateAppointmentRequest | UpdateAppointmentRequest) => {
-    setSaving(true);
-    setActionError(null);
-    try {
-      await appointmentsApi.create(body as CreateAppointmentRequest);
-      setCreateOpen(false);
-      appointmentsState.reload();
-    } catch (error) {
-      setActionError(formatApiError(error, 'Could not create the appointment.'));
-    } finally {
-      setSaving(false);
-    }
-  };
+  const todayAppointments = allAppointments.filter((a) => new Date(a.startAt).toDateString() === todayKey || isOpenAppointmentStatus(a.status));
+  const pendingAppointments = allAppointments.filter((a) => a.status === 'Awaiting');
+  const doctorViews = doctorsState.data.map((d) => mapDoctor(d, appointmentsState.data));
+  const { confirm, reject, busyId: actionBusyId } = useAppointmentActions(() => appointmentsState.reload());
 
   return (
-    <DataState loading={appointmentsState.loading || doctorsState.loading || petsState.loading || servicesState.loading || roomsState.loading} error={appointmentsState.error ?? doctorsState.error ?? petsState.error ?? servicesState.error ?? roomsState.error}>
+    <DataState loading={appointmentsState.loading || doctorsState.loading} error={appointmentsState.error ?? doctorsState.error}>
     <div className="space-y-6">
-      <PageHeader eyebrow="Clinic operations" title="Today’s clinic pulse, without analytics overload." description="Operational status, urgent items, doctor availability, and quick actions live here. Trends moved to Insights." icon={ShieldCheck} actions={<PrimaryButton icon={Plus} onClick={() => setCreateOpen(true)}>Create appointment</PrimaryButton>} />
-      <div className="grid gap-4 md:grid-cols-3">
+      <PageHeader
+        eyebrow="Clinic operations"
+        title="Today’s clinic pulse, without analytics overload."
+        description="Operational status, urgent items, doctor availability, and quick actions live here. Trends moved to Insights."
+        icon={ShieldCheck}
+        actions={
+          <PrimaryButton variant="secondary" icon={Calendar} onClick={() => navigate('/admin/appointments')}>
+            Go to appointments
+          </PrimaryButton>
+        }
+      />
+      <div className="grid gap-4 md:grid-cols-4">
         <MetricCard label="Visits today" value={todayAppointments.length} caption="Across all rooms" icon={Calendar} tone="teal" />
+        <MetricCard label="Awaiting" value={pendingAppointments.length} caption="Need doctor response" icon={AlertCircle} tone="amber" />
         <MetricCard label="Doctors active" value={doctorViews.filter((doctor) => doctor.status !== 'Off duty').length} caption="Ready for visits" icon={Stethoscope} tone="blue" />
-        <MetricCard label="Scheduled" value={allAppointments.filter((a) => a.status === 'Scheduled').length} caption="Upcoming visits" icon={AlertCircle} tone="amber" />
+        <MetricCard label="Open visits" value={allAppointments.filter((a) => isOpenAppointmentStatus(a.status)).length} caption="Accepted upcoming" icon={CheckCircle2} tone="teal" />
       </div>
+      {pendingAppointments.length > 0 && (
+        <Surface className="border border-amber-400/30 bg-amber-500/10 p-5">
+          <SectionHeader
+            title={`${pendingAppointments.length} unconfirmed request${pendingAppointments.length > 1 ? 's' : ''}`}
+            description="These bookings are waiting for a doctor to accept or reject them."
+          />
+          <div className="mt-3 space-y-3">
+            {pendingAppointments.map((appointment) => (
+              <AppointmentCard
+                key={appointment.id}
+                appointment={appointment}
+                actions={
+                  <>
+                    <PrimaryButton disabled={actionBusyId === appointment.id} onClick={() => confirm(appointment.id)}>
+                      Accept
+                    </PrimaryButton>
+                    <PrimaryButton variant="secondary" disabled={actionBusyId === appointment.id} onClick={() => reject(appointment.id)}>
+                      Reject
+                    </PrimaryButton>
+                  </>
+                }
+              />
+            ))}
+          </div>
+        </Surface>
+      )}
       <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
         <Surface className="p-5">
           <SectionHeader title="Today's appointment flow" description="Operational queue only — no charts here." />
@@ -1644,10 +2489,10 @@ export function RedesignedAdminDashboard() {
             <SectionHeader title="Doctor availability" />
             <div className="space-y-3">
               {doctorViews.map((doctor) => (
-                <div key={doctor.id} className="flex items-center justify-between rounded-2xl bg-slate-50 p-3">
+                <div key={doctor.id} className="flex items-center justify-between rounded-2xl border border-slate-700/60 bg-slate-800/60 p-3">
                   <div>
-                    <p className="font-black text-slate-950">{doctor.name}</p>
-                    <p className="text-sm text-slate-500">{doctor.specialization}</p>
+                    <p className="font-black text-white">{doctor.name}</p>
+                    <p className="text-sm text-slate-400">{doctor.specialization}</p>
                   </div>
                   <StatusBadge status={doctor.status} />
                 </div>
@@ -1657,78 +2502,262 @@ export function RedesignedAdminDashboard() {
         </div>
       </div>
     </div>
-    <AppointmentFormDialog
-      open={createOpen}
-      title="Create appointment"
-      description="Create a clinic visit from the admin dashboard."
-      pets={petsState.data.map((pet) => ({ id: pet.id, name: pet.name, ownerName: pet.ownerFullName }))}
-      doctors={doctorsState.data}
-      rooms={roomsState.data.map((room) => ({ id: room.id, name: room.name }))}
-      services={servicesState.data.map((service) => ({ id: service.id, name: service.name, durationMinutes: service.durationMinutes }))}
-      loading={saving}
-      error={actionError}
-      onClose={() => setCreateOpen(false)}
-      onSubmit={handleCreateAppointment}
-    />
     </DataState>
   );
 }
 
-export function RedesignedClinicCalendar() {
-  const appointmentsState = useAdminAppointments();
-  const petsState = useAllPets();
-  const doctorsState = useDoctors(true);
-  const servicesState = useServices();
-  const roomsState = useRooms();
-  const allAppointments = appointmentsState.data.map(mapAppointment);
-  const todayAppointments = allAppointments.slice(0, 8);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+type CalendarRange = 'day' | 'week' | 'month';
 
-  const handleCreateAppointment = async (body: CreateAppointmentRequest | UpdateAppointmentRequest) => {
-    setSaving(true);
-    setActionError(null);
-    try {
-      await appointmentsApi.create(body as CreateAppointmentRequest);
-      setCreateOpen(false);
-      appointmentsState.reload();
-    } catch (error) {
-      setActionError(formatApiError(error, 'Could not create the appointment.'));
-    } finally {
-      setSaving(false);
+const CALENDAR_RANGE_LABELS: Record<CalendarRange, string> = {
+  day: 'Day',
+  week: 'Week',
+  month: 'Month',
+};
+
+function startOfDay(date: Date): Date {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function endOfDay(date: Date): Date {
+  const next = new Date(date);
+  next.setHours(23, 59, 59, 999);
+  return next;
+}
+
+function startOfWeek(date: Date): Date {
+  const next = startOfDay(date);
+  const day = (next.getDay() + 6) % 7;
+  next.setDate(next.getDate() - day);
+  return next;
+}
+
+function startOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
+}
+
+function endOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
+}
+
+function shiftRange(range: CalendarRange, anchor: Date, direction: number): Date {
+  const next = new Date(anchor);
+  if (range === 'day') {
+    next.setDate(next.getDate() + direction);
+  } else if (range === 'week') {
+    next.setDate(next.getDate() + direction * 7);
+  } else {
+    next.setMonth(next.getMonth() + direction);
+  }
+  return next;
+}
+
+function rangeBoundaries(range: CalendarRange, anchor: Date): { from: Date; to: Date } {
+  if (range === 'day') return { from: startOfDay(anchor), to: endOfDay(anchor) };
+  if (range === 'week') {
+    const from = startOfWeek(anchor);
+    const to = new Date(from);
+    to.setDate(to.getDate() + 6);
+    return { from, to: endOfDay(to) };
+  }
+  return { from: startOfMonth(anchor), to: endOfMonth(anchor) };
+}
+
+function formatRangeLabel(range: CalendarRange, anchor: Date): string {
+  if (range === 'day') {
+    return anchor.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  if (range === 'week') {
+    const { from, to } = rangeBoundaries('week', anchor);
+    const sameMonth = from.getMonth() === to.getMonth();
+    const fromLabel = from.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const toLabel = to.toLocaleDateString(undefined, sameMonth ? { day: 'numeric', year: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
+    return `${fromLabel} – ${toLabel}`;
+  }
+  return anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+}
+
+const CALENDAR_STATUS_FILTERS = ['All', 'Awaiting', 'Accepted', 'Completed', 'Cancelled'] as const;
+type CalendarStatusFilter = (typeof CALENDAR_STATUS_FILTERS)[number];
+
+export function RedesignedClinicCalendar() {
+  const [range, setRange] = useState<CalendarRange>('day');
+  const [anchorDate, setAnchorDate] = useState<Date>(() => new Date());
+  const [statusFilter, setStatusFilter] = useState<CalendarStatusFilter>('All');
+  const [doctorFilter, setDoctorFilter] = useState<string>('all');
+  const [roomFilter, setRoomFilter] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const boundaries = useMemo(() => rangeBoundaries(range, anchorDate), [range, anchorDate]);
+  const appointmentsState = useAdminAppointments(boundaries.from.toISOString(), boundaries.to.toISOString());
+  const doctorsState = useDoctors(true);
+  const allAppointments = useMemo(
+    () => appointmentsState.data.map(mapAppointment),
+    [appointmentsState.data],
+  );
+
+  const filteredAppointments = useMemo(() => {
+    const fromMs = boundaries.from.getTime();
+    const toMs = boundaries.to.getTime();
+    const search = searchQuery.trim().toLowerCase();
+    return allAppointments.filter((appointment) => {
+      const startMs = new Date(appointment.startAt).getTime();
+      if (Number.isNaN(startMs) || startMs < fromMs || startMs > toMs) return false;
+      if (statusFilter !== 'All' && appointment.status !== statusFilter) return false;
+      if (doctorFilter !== 'all' && appointment.doctorId !== doctorFilter) return false;
+      if (roomFilter !== 'all' && appointment.roomId !== roomFilter) return false;
+      if (search) {
+        const haystack = `${appointment.petName} ${appointment.ownerName} ${appointment.doctorName} ${appointment.service} ${appointment.roomName}`.toLowerCase();
+        if (!haystack.includes(search)) return false;
+      }
+      return true;
+    });
+  }, [allAppointments, boundaries.from, boundaries.to, statusFilter, doctorFilter, roomFilter, searchQuery]);
+
+  const selectedAppointment = filteredAppointments.find((appointment) => appointment.id === selectedId)
+    ?? filteredAppointments[0]
+    ?? null;
+
+  const roomOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const appointment of allAppointments) {
+      if (appointment.roomId && !map.has(appointment.roomId)) map.set(appointment.roomId, appointment.roomName);
     }
-  };
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [allAppointments]);
 
   return (
-    <DataState loading={appointmentsState.loading || petsState.loading || doctorsState.loading || servicesState.loading || roomsState.loading} error={appointmentsState.error ?? petsState.error ?? doctorsState.error ?? servicesState.error ?? roomsState.error}>
+    <DataState loading={appointmentsState.loading || doctorsState.loading} error={appointmentsState.error ?? doctorsState.error}>
     <div className="space-y-6">
-      <PageHeader eyebrow="Clinic calendar" title="Multi-doctor, multi-room calendar for real clinic operations." description="Day/week/month controls, doctor filters, room filters, status filters, overlapping appointment blocks, and mobile agenda mode." icon={Calendar} actions={<PrimaryButton icon={Plus} onClick={() => setCreateOpen(true)}>New appointment</PrimaryButton>} />
-      <FilterBar filters={['Day', 'Week', 'Month', 'Scheduled', 'In progress']} searchPlaceholder="Search calendar appointments..." />
+      <PageHeader
+        eyebrow="Clinic calendar"
+        title="Multi-doctor, multi-room calendar for real clinic operations."
+        description="Switch between day, week and month, jump between dates, and filter by doctor, room or status. Same-time visits in different rooms render as separate blocks."
+        icon={Calendar}
+      />
+
+      <Surface className="p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            {(Object.keys(CALENDAR_RANGE_LABELS) as CalendarRange[]).map((rangeOption) => (
+              <button
+                key={rangeOption}
+                type="button"
+                onClick={() => setRange(rangeOption)}
+                className={`rounded-2xl border px-3 py-2 text-xs font-bold transition ${
+                  rangeOption === range
+                    ? 'border-teal-200 bg-teal-600 text-white shadow-lg shadow-teal-600/15'
+                    : 'border-slate-700 bg-slate-800/80 text-slate-300 hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                {CALENDAR_RANGE_LABELS[rangeOption]}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setAnchorDate((current) => shiftRange(range, current, -1))}
+              className="rounded-2xl border border-slate-700 bg-slate-800/80 px-3 py-2 text-xs font-bold text-slate-200 hover:bg-slate-800"
+            >
+              ‹ Prev
+            </button>
+            <button
+              type="button"
+              onClick={() => setAnchorDate(new Date())}
+              className="rounded-2xl border border-slate-700 bg-slate-800/80 px-3 py-2 text-xs font-bold text-slate-200 hover:bg-slate-800"
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={() => setAnchorDate((current) => shiftRange(range, current, 1))}
+              className="rounded-2xl border border-slate-700 bg-slate-800/80 px-3 py-2 text-xs font-bold text-slate-200 hover:bg-slate-800"
+            >
+              Next ›
+            </button>
+            <input
+              type="date"
+              value={formatDateInput(anchorDate)}
+              onChange={(event) => {
+                if (!event.target.value) return;
+                const [year, month, day] = event.target.value.split('-').map(Number);
+                setAnchorDate(new Date(year, (month || 1) - 1, day || 1));
+              }}
+              className="h-10 rounded-2xl border border-slate-700 bg-slate-950 px-3 text-xs font-bold text-slate-100 outline-none focus:border-teal-400/60"
+            />
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <p className="text-sm font-black text-white">{formatRangeLabel(range, anchorDate)}</p>
+          <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-bold text-slate-300">
+            {filteredAppointments.length} appointment{filteredAppointments.length === 1 ? '' : 's'}
+          </span>
+        </div>
+      </Surface>
+
+      <FilterBar
+        filters={[...CALENDAR_STATUS_FILTERS]}
+        activeFilter={statusFilter}
+        onFilterChange={(value) => setStatusFilter(value as CalendarStatusFilter)}
+        searchPlaceholder="Search pet, owner, doctor, room..."
+        searchValue={searchQuery}
+        onSearchChange={setSearchQuery}
+      />
+
+      <Surface className="p-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <FormSelect
+            label="Doctor"
+            value={doctorFilter}
+            onChange={(value) => setDoctorFilter(value)}
+            options={[
+              { value: 'all', label: 'All doctors' },
+              ...doctorsState.data.map((doctor) => ({
+                value: doctor.id,
+                label: `Dr. ${doctor.firstName} ${doctor.lastName}`,
+              })),
+            ]}
+          />
+          <FormSelect
+            label="Room"
+            value={roomFilter}
+            onChange={(value) => setRoomFilter(value)}
+            options={[
+              { value: 'all', label: 'All rooms' },
+              ...roomOptions.map((room) => ({ value: room.id, label: room.name })),
+            ]}
+          />
+        </div>
+      </Surface>
+
       <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
-        <CalendarGrid appointments={todayAppointments} />
+        <CalendarGrid
+          appointments={filteredAppointments}
+          onSelect={setSelectedId}
+          selectedId={selectedAppointment?.id ?? null}
+        />
         <Surface className="p-5">
-          <SectionHeader title="Appointment details" description="Select a block to manage the visit." />
-          {todayAppointments[0] ? <AppointmentCard appointment={todayAppointments[0]} compact /> : <EmptyState title="No appointments" description="Create a visit to populate the calendar." />}
+          <SectionHeader title="Appointment details" description="Select a block to inspect the visit." />
+          {selectedAppointment ? (
+            <AppointmentCard appointment={selectedAppointment} compact />
+          ) : (
+            <EmptyState
+              title="No appointment selected"
+              description="Adjust filters or pick a slot from the grid to see its full details here."
+            />
+          )}
         </Surface>
       </div>
     </div>
-    <AppointmentFormDialog
-      open={createOpen}
-      title="Create appointment"
-      description="Create a new visit from the clinic calendar."
-      pets={petsState.data.map((pet) => ({ id: pet.id, name: pet.name, ownerName: pet.ownerFullName }))}
-      doctors={doctorsState.data}
-      rooms={roomsState.data.map((room) => ({ id: room.id, name: room.name }))}
-      services={servicesState.data.map((service) => ({ id: service.id, name: service.name, durationMinutes: service.durationMinutes }))}
-      loading={saving}
-      error={actionError}
-      onClose={() => setCreateOpen(false)}
-      onSubmit={handleCreateAppointment}
-    />
     </DataState>
   );
 }
+
+const APPOINTMENT_STATUS_FILTERS = ['All', 'Awaiting', 'Accepted', 'Completed', 'Cancelled'] as const;
+type AppointmentStatusFilter = (typeof APPOINTMENT_STATUS_FILTERS)[number];
 
 export function RedesignedAppointmentManagement() {
   const appointmentsState = useAdminAppointments();
@@ -1736,12 +2765,31 @@ export function RedesignedAppointmentManagement() {
   const doctorsState = useDoctors(true);
   const servicesState = useServices();
   const roomsState = useRooms();
-  const { cancel, complete, busyId } = useAppointmentActions(() => appointmentsState.reload());
-  const allAppointments = appointmentsState.data.map(mapAppointment);
+  const clientsState = useClientsDirectory();
+  const { cancel, complete, confirm, reject, busyId } = useAppointmentActions(() => appointmentsState.reload());
+  const allAppointments = useMemo(
+    () => appointmentsState.data.map(mapAppointment),
+    [appointmentsState.data],
+  );
   const [editingAppointment, setEditingAppointment] = useState<AppointmentResponse | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<AppointmentStatusFilter>('All');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [detailAppointmentId, setDetailAppointmentId] = useState<string | null>(null);
+
+  const filteredAppointments = useMemo(() => {
+    const search = searchQuery.trim().toLowerCase();
+    return allAppointments.filter((appointment) => {
+      if (statusFilter !== 'All' && appointment.status !== statusFilter) return false;
+      if (!search) return true;
+      const haystack = `${appointment.petName} ${appointment.ownerName} ${appointment.doctorName} ${appointment.service} ${appointment.roomName}`.toLowerCase();
+      return haystack.includes(search);
+    });
+  }, [allAppointments, statusFilter, searchQuery]);
+
+  const detailAppointment = appointmentsState.data.find((item) => item.id === detailAppointmentId) ?? null;
 
   const openCreate = () => {
     setEditingAppointment(null);
@@ -1774,51 +2822,104 @@ export function RedesignedAppointmentManagement() {
   };
 
   return (
-    <DataState loading={appointmentsState.loading || petsState.loading || doctorsState.loading || servicesState.loading || roomsState.loading} error={appointmentsState.error ?? petsState.error ?? doctorsState.error ?? servicesState.error ?? roomsState.error}>
+    <DataState
+      loading={appointmentsState.loading || petsState.loading || doctorsState.loading || servicesState.loading || roomsState.loading || clientsState.loading}
+      error={appointmentsState.error ?? petsState.error ?? doctorsState.error ?? servicesState.error ?? roomsState.error ?? clientsState.error}
+    >
     <div className="space-y-6">
-      <PageHeader eyebrow="Appointment management" title="A powerful queue without unnecessary charts." description="Searchable, filterable, status-aware management view with edit/cancel/complete actions." icon={Calendar} actions={<PrimaryButton icon={Plus} onClick={openCreate}>Create appointment</PrimaryButton>} />
-      <FilterBar filters={['All', 'Today', 'Scheduled', 'In progress', 'Completed', 'Cancelled', 'No-show']} searchPlaceholder="Search appointment, owner, pet, doctor..." />
+      <PageHeader
+        eyebrow="Appointment management"
+        title="A powerful queue without unnecessary charts."
+        description="Searchable, filterable, status-aware management view with edit/cancel/complete actions. Click any row to inspect pet, owner and guarantor details."
+        icon={Calendar}
+        actions={<PrimaryButton icon={Plus} onClick={openCreate}>Create appointment</PrimaryButton>}
+      />
+      <FilterBar
+        filters={[...APPOINTMENT_STATUS_FILTERS]}
+        activeFilter={statusFilter}
+        onFilterChange={(value) => setStatusFilter(value as AppointmentStatusFilter)}
+        searchPlaceholder="Search appointment, owner, pet, doctor, room..."
+        searchValue={searchQuery}
+        onSearchChange={setSearchQuery}
+      />
       <Surface className="overflow-hidden">
         <div className="hidden overflow-x-auto lg:block">
-          <table className="w-full">
-            <thead className="bg-white/70">
+          <table className="w-full table-fixed">
+            <colgroup>
+              <col className="w-[110px]" />
+              <col className="w-[170px]" />
+              <col className="w-[140px]" />
+              <col className="w-[150px]" />
+              <col className="w-[120px]" />
+              <col className="w-[140px]" />
+              <col className="w-[120px]" />
+              <col />
+            </colgroup>
+            <thead className="bg-slate-900/70">
               <tr>
-                {['Time', 'Pet', 'Owner', 'Doctor', 'Service', 'Status', 'Actions'].map((head) => (
-                  <th key={head} className="px-5 py-4 text-left text-xs font-black uppercase tracking-[0.16em] text-slate-400">{head}</th>
+                {['Time', 'Pet', 'Owner', 'Doctor', 'Room', 'Service', 'Status', 'Actions'].map((head) => (
+                  <th key={head} className="px-3 py-3 text-left text-[11px] font-black uppercase tracking-[0.14em] text-slate-400">{head}</th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
-              {allAppointments.map((appointment) => (
-                <tr key={appointment.id} className="hover:bg-teal-50/35">
-                  <td className="px-5 py-4 font-black text-slate-950">{appointment.date}<br /><span className="text-xs text-slate-400">{appointment.time}</span></td>
-                  <td className="px-5 py-4">{appointment.petName}</td>
-                  <td className="px-5 py-4">{appointment.ownerName}</td>
-                  <td className="px-5 py-4">{appointment.doctorName}</td>
-                  <td className="px-5 py-4">{appointment.service}</td>
-                  <td className="px-5 py-4"><StatusBadge status={appointment.status} /></td>
-                  <td className="px-5 py-4">
-                    <div className="flex gap-2">
-                      <button onClick={() => openEdit(appointment.id)} className="rounded-xl border border-slate-100 bg-white px-3 py-1.5 text-xs font-bold text-slate-600">Edit</button>
-                      {appointment.status === 'Scheduled' && (
+            <tbody className="divide-y divide-slate-800">
+              {filteredAppointments.map((appointment) => (
+                <tr
+                  key={appointment.id}
+                  className="cursor-pointer transition hover:bg-teal-500/5"
+                  onClick={() => setDetailAppointmentId(appointment.id)}
+                >
+                  <td className="px-3 py-3 align-middle">
+                    <p className="text-xs font-bold text-slate-300">{appointment.date}</p>
+                    <p className="mt-0.5 text-[11px] font-bold uppercase tracking-[0.06em] text-slate-500">{appointment.time}</p>
+                  </td>
+                  <td className="px-3 py-3 align-middle">
+                    <div className="flex items-center gap-2">
+                      <PetAvatar species={appointment.petSpecies} size="sm" />
+                      <span className="min-w-0 break-words text-sm font-bold text-slate-100">{appointment.petName}</span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 align-middle break-words text-sm text-slate-200">{appointment.ownerName}</td>
+                  <td className="px-3 py-3 align-middle break-words text-sm text-slate-200">{appointment.doctorName}</td>
+                  <td className="px-3 py-3 align-middle break-words text-sm text-slate-300">{appointment.roomName || '—'}</td>
+                  <td className="px-3 py-3 align-middle break-words text-sm text-slate-200">{appointment.service}</td>
+                  <td className="px-3 py-3 align-middle"><StatusBadge status={appointment.status} /></td>
+                  <td className="px-3 py-3 align-middle" onClick={(event) => event.stopPropagation()}>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button onClick={() => openEdit(appointment.id)} className="rounded-xl border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] font-bold text-slate-200 hover:bg-slate-800">Edit</button>
+                      {appointment.status === 'Awaiting' && (
                         <>
-                          <button disabled={busyId === appointment.id} onClick={() => complete(appointment.id)} className="rounded-xl border border-slate-100 bg-white px-3 py-1.5 text-xs font-bold text-slate-600">Complete</button>
-                          <button disabled={busyId === appointment.id} onClick={() => cancel(appointment.id)} className="rounded-xl border border-slate-100 bg-white px-3 py-1.5 text-xs font-bold text-slate-600">Cancel</button>
+                          <button disabled={busyId === appointment.id} onClick={() => confirm(appointment.id)} className="rounded-xl border border-teal-400/40 bg-teal-500/10 px-2.5 py-1 text-[11px] font-bold text-teal-200 hover:bg-teal-500/20">Accept</button>
+                          <button disabled={busyId === appointment.id} onClick={() => reject(appointment.id)} className="rounded-xl border border-rose-400/40 bg-rose-500/10 px-2.5 py-1 text-[11px] font-bold text-rose-200 hover:bg-rose-500/20">Reject</button>
+                        </>
+                      )}
+                      {appointment.status === 'Accepted' && (
+                        <>
+                          <button disabled={busyId === appointment.id} onClick={() => complete(appointment.id)} className="rounded-xl border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] font-bold text-slate-200 hover:bg-slate-800">Complete</button>
+                          <button disabled={busyId === appointment.id} onClick={() => cancel(appointment.id)} className="rounded-xl border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] font-bold text-slate-200 hover:bg-slate-800">Cancel</button>
                         </>
                       )}
                     </div>
                   </td>
                 </tr>
               ))}
+              {!filteredAppointments.length ? (
+                <tr>
+                  <td colSpan={8} className="px-3 py-8 text-center text-sm text-slate-400">
+                    No appointments match the current filters.
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>
         <div className="space-y-3 p-4 lg:hidden">
-          {allAppointments.map((appointment) => (
+          {filteredAppointments.map((appointment) => (
             <AppointmentCard
               key={appointment.id}
               appointment={appointment}
               compact
+              onClick={() => setDetailAppointmentId(appointment.id)}
               actions={<PrimaryButton variant="secondary" icon={Edit3} onClick={() => openEdit(appointment.id)}>Edit</PrimaryButton>}
             />
           ))}
@@ -1828,16 +2929,44 @@ export function RedesignedAppointmentManagement() {
     <AppointmentFormDialog
       open={dialogOpen}
       title={editingAppointment ? 'Edit appointment' : 'Create appointment'}
-      description="Manage visit timing, room, doctor and service from the admin queue."
+      description="Manage visit timing, room, doctor and procedure from the admin queue."
       appointment={editingAppointment}
-      pets={petsState.data.map((pet) => ({ id: pet.id, name: pet.name, ownerName: pet.ownerFullName }))}
+      pets={petsState.data.map((pet) => ({
+        id: pet.id,
+        name: pet.name,
+        ownerId: pet.ownerId,
+        ownerName: pet.ownerFullName,
+      }))}
+      clients={clientsState.data.map((client) => ({
+        ownerId: client.ownerId,
+        firstName: client.firstName,
+        lastName: client.lastName,
+        email: client.email,
+        phone: client.phone,
+      }))}
       doctors={doctorsState.data}
       rooms={roomsState.data.map((room) => ({ id: room.id, name: room.name }))}
-      services={servicesState.data.map((service) => ({ id: service.id, name: service.name, durationMinutes: service.durationMinutes }))}
+      services={servicesState.data.map((service) => ({
+        id: service.id,
+        name: service.name,
+        categoryId: service.categoryId,
+        categoryName: service.categoryName,
+        durationMinutes: service.durationMinutes,
+      }))}
       loading={saving}
       error={actionError}
       onClose={() => setDialogOpen(false)}
       onSubmit={handleSaveAppointment}
+    />
+    <AppointmentDetailDialog
+      appointment={detailAppointment}
+      pets={petsState.data}
+      clients={clientsState.data}
+      onClose={() => setDetailAppointmentId(null)}
+      onEdit={(appointmentId) => {
+        setDetailAppointmentId(null);
+        openEdit(appointmentId);
+      }}
     />
     </DataState>
   );
@@ -1848,13 +2977,39 @@ export function RedesignedDoctorManagement() {
   const doctorsState = useDoctors(true);
   const appointmentsState = useAdminAppointments();
   const specializationsState = useSpecializations(false);
-  const doctorViews = doctorsState.data.map((d) =>
-    mapDoctor(d, appointmentsState.data.filter((a) => a.doctorId === d.id).length),
-  );
+  const doctorViews = doctorsState.data.map((d) => mapDoctor(d, appointmentsState.data));
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingDoctor, setEditingDoctor] = useState<DoctorResponse | null>(null);
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [doctorSearch, setDoctorSearch] = useState('');
+  const [doctorStatusFilter, setDoctorStatusFilter] = useState('All');
+
+  const doctorStatusFilters = useMemo(() => {
+    const base = ['All', 'Available', 'Off duty'];
+    const specSet = new Set<string>();
+    for (const doctor of doctorsState.data) {
+      for (const spec of doctor.specializations) {
+        if (spec.isActive) specSet.add(spec.name);
+      }
+    }
+    return [...base, ...Array.from(specSet).sort()];
+  }, [doctorsState.data]);
+
+  const filteredDoctorViews = useMemo(() => {
+    const search = doctorSearch.trim().toLowerCase();
+    return doctorViews.filter((doctor) => {
+      const source = doctorsState.data.find((item) => item.id === doctor.id);
+      const specs = source?.specializations.map((spec) => spec.name) ?? [doctor.specialization];
+      if (doctorStatusFilter !== 'All') {
+        const matchesStatus = doctorStatusFilter === doctor.status || specs.includes(doctorStatusFilter);
+        if (!matchesStatus) return false;
+      }
+      if (!search) return true;
+      const haystack = `${doctor.name} ${doctor.email} ${specs.join(' ')}`.toLowerCase();
+      return haystack.includes(search);
+    });
+  }, [doctorViews, doctorsState.data, doctorSearch, doctorStatusFilter]);
 
   const openCreate = () => {
     setEditingDoctor(null);
@@ -1941,21 +3096,35 @@ export function RedesignedDoctorManagement() {
         icon={Stethoscope}
         actions={canManageDoctors(user!.role) ? <PrimaryButton icon={Plus} onClick={openCreate}>Add doctor</PrimaryButton> : undefined}
       />
-      <FilterBar filters={['All', 'Available', 'Busy', 'Off duty', 'Surgery', 'Dermatology']} searchPlaceholder="Search doctor, specialization..." />
-      <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-        {doctorViews.map((doctor) => (
-          <DoctorCard
-            key={doctor.id}
-            doctor={doctor}
-            actions={canManageDoctors(user!.role) ? (
-              <>
-                <PrimaryButton variant="secondary" icon={Edit3} onClick={() => openEdit(doctor.id)}>Edit</PrimaryButton>
-                <PrimaryButton variant="ghost" icon={Trash2} disabled={saving} onClick={() => handleDeleteDoctor(doctor.id)}>Remove</PrimaryButton>
-              </>
-            ) : undefined}
-          />
-        ))}
-      </div>
+      <FilterBar
+        filters={doctorStatusFilters}
+        activeFilter={doctorStatusFilter}
+        onFilterChange={setDoctorStatusFilter}
+        searchValue={doctorSearch}
+        onSearchChange={setDoctorSearch}
+        searchPlaceholder="Search doctor, email, specialization..."
+      />
+      {filteredDoctorViews.length ? (
+        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+          {filteredDoctorViews.map((doctor) => (
+            <DoctorCard
+              key={doctor.id}
+              doctor={doctor}
+              actions={canManageDoctors(user!.role) ? (
+                <>
+                  <PrimaryButton variant="secondary" icon={Edit3} onClick={() => openEdit(doctor.id)}>Edit</PrimaryButton>
+                  <PrimaryButton variant="ghost" icon={Trash2} disabled={saving} onClick={() => handleDeleteDoctor(doctor.id)}>Remove</PrimaryButton>
+                </>
+              ) : undefined}
+            />
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          title="No doctors match your filters"
+          description="Try a different search term or status."
+        />
+      )}
     </div>
     <DoctorAccountDialog
       open={dialogOpen}
@@ -2007,14 +3176,14 @@ export function RedesignedStaffManagement() {
       <Surface className="overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-white/70">
+            <thead className="bg-slate-900/70">
               <tr>
                 {['Name', 'Email', 'Role', 'Status', 'Actions'].map((head) => (
                   <th key={head} className="px-5 py-4 text-left text-xs font-black uppercase tracking-[0.16em] text-slate-400">{head}</th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-800">
               {staffState.data.map((member) => {
                 let role: 'superadmin' | 'admin' | 'doctor';
                 if (member.role === 'SuperAdmin') {
@@ -2035,17 +3204,17 @@ export function RedesignedStaffManagement() {
                 const deletable = canDeleteUser(user, target);
 
                 return (
-                  <tr key={member.userId} className="hover:bg-teal-50/35">
-                    <td className="px-5 py-4 font-black text-slate-950">{member.firstName} {member.lastName}</td>
-                    <td className="px-5 py-4 text-slate-600">{member.email}</td>
+                  <tr key={member.userId} className="transition hover:bg-teal-500/5">
+                    <td className="px-5 py-4 font-black text-white">{member.firstName} {member.lastName}</td>
+                    <td className="px-5 py-4 text-slate-300">{member.email}</td>
                     <td className="px-5 py-4">
-                      <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-black text-teal-700">
+                      <span className="rounded-full border border-teal-400/30 bg-teal-500/10 px-3 py-1 text-xs font-black text-teal-200">
                         {roleLabel(target.role)}
                       </span>
                     </td>
                     <td className="px-5 py-4">
                       {member.isProtected ? (
-                        <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-black text-violet-700">Protected</span>
+                        <span className="rounded-full border border-violet-400/30 bg-violet-500/10 px-3 py-1 text-xs font-black text-violet-200">Protected</span>
                       ) : (
                         <StatusBadge status={member.isActive ? 'Available' : 'Off duty'} />
                       )}
@@ -2066,12 +3235,12 @@ export function RedesignedStaffManagement() {
                               setSaving(false);
                             }
                           }}
-                          className="rounded-xl border border-rose-100 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-600"
+                          className="rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-1.5 text-xs font-bold text-rose-200 hover:bg-rose-500/20"
                         >
                           Remove
                         </button>
                       ) : (
-                        <span className="text-xs font-bold text-slate-400">Cannot remove</span>
+                        <span className="text-xs font-bold text-slate-500">Cannot remove</span>
                       )}
                     </td>
                   </tr>
@@ -2126,9 +3295,27 @@ export function RedesignedStaffManagement() {
   );
 }
 
+const CLIENT_FILTERS = ['All clients', 'Multiple pets', 'No pets', 'Has visits'] as const;
+type ClientFilter = (typeof CLIENT_FILTERS)[number];
+
 export function RedesignedClientsManagement() {
   const clientsState = useClientsDirectory();
-  const clients = clientsState.data.map((c) => ({
+  const [filter, setFilter] = useState<ClientFilter>('All clients');
+  const [search, setSearch] = useState('');
+
+  const filteredClients = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return clientsState.data.filter((client) => {
+      if (filter === 'Multiple pets' && client.petsCount < 2) return false;
+      if (filter === 'No pets' && client.petsCount > 0) return false;
+      if (filter === 'Has visits' && !client.lastAppointmentAt) return false;
+      if (!query) return true;
+      const haystack = `${client.firstName} ${client.lastName} ${client.email} ${client.phone ?? ''}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [clientsState.data, filter, search]);
+
+  const clients = filteredClients.map((c) => ({
     name: `${c.firstName} ${c.lastName}`,
     phone: c.phone ?? c.email,
     petsCount: c.petsCount,
@@ -2139,10 +3326,24 @@ export function RedesignedClientsManagement() {
     <DataState loading={clientsState.loading} error={clientsState.error}>
     <div className="space-y-6">
       <PageHeader eyebrow="Clients" title="Client relationships, pets, and follow-up context." description="A polished working client directory with contact info, pet counts, last appointment, and follow-up context. New client creation currently comes from the public registration flow." icon={Users} />
-      <FilterBar filters={['All clients', 'Has upcoming', 'Needs follow-up', 'Multiple pets']} searchPlaceholder="Search client, phone, pet..." />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {clients.map((client) => <ClientCard key={client.name} {...client} />)}
-      </div>
+      <FilterBar
+        filters={[...CLIENT_FILTERS]}
+        activeFilter={filter}
+        onFilterChange={(value) => setFilter(value as ClientFilter)}
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search by name, email, phone..."
+      />
+      {clients.length ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {clients.map((client) => <ClientCard key={`${client.name}-${client.phone}`} {...client} />)}
+        </div>
+      ) : (
+        <EmptyState
+          title="No clients match your search"
+          description="Adjust filters or clear the search input."
+        />
+      )}
     </div>
     </DataState>
   );
@@ -2198,8 +3399,8 @@ function SettingsPanel({ title, fields, disabled = false }: Readonly<{ title: st
       <div className="grid gap-4 md:grid-cols-2">
         {fields.map((field) => (
           <label key={field} className="block">
-            <span className="mb-2 block text-sm font-bold text-slate-700">{field}</span>
-            <input disabled={disabled} className="h-12 w-full rounded-2xl border border-slate-100 bg-slate-50 px-4 text-sm outline-none focus:border-teal-200 focus:bg-white focus:ring-4 focus:ring-teal-500/10 disabled:bg-slate-100 disabled:text-slate-500" placeholder={field} />
+            <span className="mb-2 block text-sm font-bold text-slate-200">{field}</span>
+            <input disabled={disabled} className="h-12 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-teal-400/60 focus:ring-4 focus:ring-teal-500/10 disabled:opacity-60" placeholder={field} />
           </label>
         ))}
       </div>
@@ -2208,50 +3409,202 @@ function SettingsPanel({ title, fields, disabled = false }: Readonly<{ title: st
 }
 
 export function RedesignedProfilePage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const initials = `${user!.firstName.charAt(0)}${user!.lastName.charAt(0) || user!.firstName.charAt(1) || ''}`.toUpperCase();
+  const [profileDraft, setProfileDraft] = useState({
+    firstName: user!.firstName,
+    lastName: user!.lastName,
+    photoUrl: user!.photoUrl ?? null,
+  });
+  const [passwordDraft, setPasswordDraft] = useState({
+    currentPassword: '',
+    newPassword: '',
+  });
+  const [notificationPrefs, setNotificationPrefs] = useState({
+    appointmentReminders: true,
+    medicalRecordUpdates: true,
+    clinicAnnouncements: true,
+  });
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [notificationError, setNotificationError] = useState<string | null>(null);
+  const [profileMessage, setProfileMessage] = useState<string | null>(null);
+  const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [savingNotifications, setSavingNotifications] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setProfileDraft({
+      firstName: user!.firstName,
+      lastName: user!.lastName,
+      photoUrl: user!.photoUrl ?? null,
+    });
+  }, [user]);
+
+  useEffect(() => {
+    authApi.me()
+      .then((me) => {
+        setProfileDraft((prev) => ({ ...prev, photoUrl: me.photoUrl ?? prev.photoUrl }));
+        setNotificationPrefs(me.notificationPreferences);
+      })
+      .catch((error) => setNotificationError(formatApiError(error, 'Could not load notification settings.')));
+  }, []);
+
+  const handleSaveProfile = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const firstNameError = validateName(profileDraft.firstName, 'First name');
+    const lastNameError = validateName(profileDraft.lastName, 'Last name');
+    if (firstNameError || lastNameError) {
+      setProfileError(firstNameError ?? lastNameError);
+      return;
+    }
+
+    setSavingProfile(true);
+    setProfileError(null);
+    setProfileMessage(null);
+    try {
+      await authApi.updateProfile({
+        firstName: profileDraft.firstName.trim(),
+        lastName: profileDraft.lastName.trim(),
+        photoUrl: profileDraft.photoUrl,
+      });
+      await refreshUser();
+      setProfileMessage('Profile saved.');
+    } catch (error) {
+      setProfileError(formatApiError(error, 'Could not save profile changes.'));
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const handleAvatarSelect = async (photoUrl: string) => {
+    setProfileDraft((prev) => ({ ...prev, photoUrl }));
+    setAvatarError(null);
+    try {
+      await authApi.updateProfile({
+        firstName: profileDraft.firstName.trim(),
+        lastName: profileDraft.lastName.trim(),
+        photoUrl,
+      });
+      await refreshUser();
+      setProfileMessage('Avatar saved.');
+    } catch (error) {
+      setAvatarError(formatApiError(error, 'Could not save avatar.'));
+    }
+  };
+
+  const handleChangePassword = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const passwordErrorText = validatePassword(passwordDraft.newPassword);
+    if (passwordErrorText) {
+      setPasswordError(passwordErrorText);
+      return;
+    }
+
+    setSavingPassword(true);
+    setPasswordError(null);
+    setPasswordMessage(null);
+    try {
+      await authApi.changePassword(passwordDraft);
+      setPasswordDraft({ currentPassword: '', newPassword: '' });
+      setPasswordMessage('Password changed.');
+    } catch (error) {
+      setPasswordError(formatApiError(error, 'Could not change password.'));
+    } finally {
+      setSavingPassword(false);
+    }
+  };
+
+  const handleNotificationChange = async (key: keyof typeof notificationPrefs, checked: boolean) => {
+    const previousPrefs = { ...notificationPrefs };
+    const nextPrefs = { ...notificationPrefs, [key]: checked };
+    setNotificationPrefs(nextPrefs);
+    setSavingNotifications(true);
+    setNotificationError(null);
+    try {
+      const saved = await authApi.updateNotificationPreferences(nextPrefs);
+      setNotificationPrefs(saved);
+    } catch (error) {
+      setNotificationPrefs(previousPrefs);
+      setNotificationError(formatApiError(error, 'Could not save notification settings.'));
+    } finally {
+      setSavingNotifications(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
       <PageHeader eyebrow="Profile & account" title="Your VetVik account" description="Manage your personal information, security settings, and notifications." icon={Users} />
       <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
         <Surface className="p-6 text-center">
-          <div className="mx-auto grid h-24 w-24 place-items-center rounded-[2rem] bg-gradient-to-br from-teal-400 to-amber-300 text-2xl font-black text-white shadow-xl">{initials}</div>
-          <h2 className="mt-5 text-2xl font-black tracking-[-0.04em] text-slate-950">{user!.firstName} {user!.lastName}</h2>
-          <p className="text-sm text-slate-500">{roleLabel(user!.role)}</p>
-          <div className="mt-5"><UploadAvatar label="Upload avatar" /></div>
+          <GalleryImagePicker onSelect={handleAvatarSelect} onError={setAvatarError}>
+            {(open) => (
+              <button
+                type="button"
+                onClick={open}
+                className="mx-auto grid h-24 w-24 place-items-center overflow-hidden rounded-[2rem] bg-gradient-to-br from-teal-400 to-amber-300 text-2xl font-black text-white shadow-xl"
+              >
+                {profileDraft.photoUrl ? (
+                  <img src={profileDraft.photoUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  initials
+                )}
+              </button>
+            )}
+          </GalleryImagePicker>
+          <h2 className="mt-5 text-2xl font-black tracking-[-0.04em] text-white">{profileDraft.firstName} {profileDraft.lastName}</h2>
+          <p className="text-sm text-slate-400">{roleLabel(user!.role)}</p>
+          <div className="mt-5">
+            <UploadAvatar label="Choose from gallery" onChange={handleAvatarSelect} onError={setAvatarError} />
+          </div>
+          {avatarError ? <p className="mt-3 text-xs font-bold text-rose-600">{avatarError}</p> : null}
         </Surface>
         <div className="space-y-5">
           <Surface className="p-5">
-            <SectionHeader title="My Profile" description="Current account data restored from your authenticated session." />
-            <div className="grid gap-4 md:grid-cols-2">
-              {[
-                ['First name', user!.firstName],
-                ['Last name', user!.lastName || '—'],
-                ['Email', user!.email],
-                ['Role', roleLabel(user!.role)],
-              ].map(([label, value]) => (
-                <label key={label} className="block">
-                  <span className="mb-2 block text-sm font-bold text-slate-700">{label}</span>
-                  <input disabled value={value} className="h-12 w-full rounded-2xl border border-slate-100 bg-slate-100 px-4 text-sm text-slate-500 outline-none" />
-                </label>
-              ))}
-            </div>
+            <SectionHeader title="My Profile" description="Update the profile shown across VetVik." />
+            <form onSubmit={handleSaveProfile} className="mt-4">
+              <FormGrid columns={2}>
+                <FormField label="First name" value={profileDraft.firstName} onChange={(value) => setProfileDraft((prev) => ({ ...prev, firstName: value }))} />
+                <FormField label="Last name" value={profileDraft.lastName} onChange={(value) => setProfileDraft((prev) => ({ ...prev, lastName: value }))} />
+                <FormField label="Email" type="email" value={user!.email} onChange={() => undefined} disabled />
+                <FormField label="Role" value={roleLabel(user!.role)} onChange={() => undefined} disabled />
+              </FormGrid>
+              <FormErrorMessage message={profileError} />
+              {profileMessage ? <p className="mt-4 rounded-2xl bg-teal-500/10 px-4 py-3 text-sm font-bold text-teal-300">{profileMessage}</p> : null}
+              <div className="mt-5 flex justify-end">
+                <PrimaryButton type="submit" icon={Save} disabled={savingProfile}>
+                  {savingProfile ? 'Saving...' : 'Save profile'}
+                </PrimaryButton>
+              </div>
+            </form>
           </Surface>
-          <EmptyState
-            title="Account details are read-only"
-            description="The current backend API exposes the authenticated session profile, but no profile-update, password, or notification-preference endpoints were found during the API audit."
-          />
+          <Surface className="p-5">
+            <SectionHeader title="Security" description="Change your account password." />
+            <form onSubmit={handleChangePassword} className="mt-4">
+              <FormGrid columns={2}>
+                <FormField label="Current password" type="password" value={passwordDraft.currentPassword} onChange={(value) => setPasswordDraft((prev) => ({ ...prev, currentPassword: value }))} />
+                <FormField label="New password" type="password" value={passwordDraft.newPassword} onChange={(value) => setPasswordDraft((prev) => ({ ...prev, newPassword: value }))} />
+              </FormGrid>
+              <FormErrorMessage message={passwordError} />
+              {passwordMessage ? <p className="mt-4 rounded-2xl bg-teal-500/10 px-4 py-3 text-sm font-bold text-teal-300">{passwordMessage}</p> : null}
+              <div className="mt-5 flex justify-end">
+                <PrimaryButton type="submit" icon={Save} disabled={savingPassword}>
+                  {savingPassword ? 'Changing...' : 'Change password'}
+                </PrimaryButton>
+              </div>
+            </form>
+          </Surface>
           <Surface className="p-5">
             <SectionHeader title="Notifications" />
-            <div className="grid gap-3">
-              {['Appointment reminders', 'Medical record updates', 'Clinic announcements'].map((item) => (
-                <div key={item} className="flex items-center justify-between rounded-2xl bg-slate-50 p-4">
-                  <div className="flex items-center gap-3"><Bell className="h-4 w-4 text-teal-600" /><span className="font-bold text-slate-700">{item}</span></div>
-                  <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-black text-slate-600">Unavailable</span>
-                </div>
-              ))}
+            <div className="mt-4 grid gap-3">
+              <FormSwitchRow label="Appointment reminders" checked={notificationPrefs.appointmentReminders} onChange={(checked) => handleNotificationChange('appointmentReminders', checked)} />
+              <FormSwitchRow label="Medical record updates" checked={notificationPrefs.medicalRecordUpdates} onChange={(checked) => handleNotificationChange('medicalRecordUpdates', checked)} />
+              <FormSwitchRow label="Clinic announcements" checked={notificationPrefs.clinicAnnouncements} onChange={(checked) => handleNotificationChange('clinicAnnouncements', checked)} />
             </div>
+            {savingNotifications ? <p className="mt-3 text-sm font-bold text-slate-400">Saving...</p> : null}
+            <FormErrorMessage message={notificationError} />
           </Surface>
         </div>
       </div>
@@ -2264,9 +3617,7 @@ export function RedesignedAdminInsights() {
   const doctorsState = useDoctors(true);
   const appointmentsState = useAdminAppointments();
   const insights = insightsState.data;
-  const doctorViews = doctorsState.data.map((d) =>
-    mapDoctor(d, appointmentsState.data.filter((a) => a.doctorId === d.id).length),
-  );
+  const doctorViews = doctorsState.data.map((d) => mapDoctor(d, appointmentsState.data));
   const serviceData = insights.serviceDistribution;
   const speciesTotal = insights.speciesDistribution.reduce((sum, item) => sum + item.value, 0) || 1;
   const speciesData = insights.speciesDistribution.map((item, index) => ({
@@ -2309,7 +3660,7 @@ export function RedesignedAdminInsights() {
         </AnalyticsCard>
         <AnalyticsCard title="Doctor workload">
           <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={doctorViews.map((doctor) => ({ name: doctor.name.replace('Dr. ', ''), visits: doctor.todayAppointments }))}>
+            <BarChart data={doctorViews.map((doctor) => ({ name: doctor.name.replace('Dr. ', ''), visits: doctor.totalAppointments }))}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
               <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
@@ -2338,7 +3689,7 @@ export function RedesignedAdminInsights() {
             </PieChart>
           </ResponsiveContainer>
           <div className="mt-4 grid grid-cols-2 gap-2">
-            {speciesData.map((item) => <div key={item.name} className="rounded-2xl bg-slate-50 p-3 text-sm font-bold text-slate-600">{item.name}: {item.value}%</div>)}
+            {speciesData.map((item) => <div key={item.name} className="rounded-2xl border border-slate-700/60 bg-slate-800/60 p-3 text-sm font-bold text-slate-300">{item.name}: {item.value}%</div>)}
           </div>
         </AnalyticsCard>
       </div>
@@ -2358,8 +3709,8 @@ export function RedesignedAdminInsights() {
           <SectionHeader title="Operational insights" />
           <div className="space-y-3">
             <EmptyState
-              title="Narrative insights are not available"
-              description="This panel now waits for backend-provided operational recommendations instead of showing hardcoded advice."
+              title="No insights yet"
+              description="Operational recommendations will appear here when there is enough clinic activity."
             />
           </div>
         </Surface>

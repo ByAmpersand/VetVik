@@ -7,6 +7,7 @@ export interface AppUser {
   email: string;
   firstName: string;
   lastName: string;
+  photoUrl?: string | null;
   role: AppRole;
   isProtected?: boolean;
 }

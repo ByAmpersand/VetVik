@@ -6,14 +6,12 @@ import {
   CalendarDays,
   ChevronDown,
   ClipboardList,
-  Command,
   FileText,
   HeartPulse,
   Home,
   LogOut,
   Menu,
   PawPrint,
-  Search,
   Settings,
   Shield,
   Stethoscope,
@@ -214,18 +212,19 @@ export function VetVikShell() {
         </div>
       )}
 
-      <div className="relative z-10 flex min-h-screen flex-col lg:pl-80">
+      <div className="relative flex min-h-screen flex-col lg:pl-80">
         <header className="sticky top-0 z-40 border-b border-slate-700/70 bg-slate-950/82 px-4 py-3 backdrop-blur-2xl lg:px-8">
           <div className="mx-auto flex max-w-[1500px] items-center gap-3">
             <button className="rounded-2xl border border-white/70 bg-white/70 p-2.5 shadow-sm lg:hidden" onClick={() => setMobileOpen(true)}>
               <Menu className="h-5 w-5" />
             </button>
-            <div className="hidden flex-1 items-center gap-3 rounded-2xl border border-white/80 bg-white/65 px-4 py-2.5 shadow-sm md:flex">
-              <Search className="h-4 w-4 text-slate-400" />
-              <input className="flex-1 bg-transparent text-sm outline-none placeholder:text-slate-400" placeholder="Search pets, appointments, doctors..." />
-              <div className="hidden items-center gap-1 rounded-xl bg-slate-100 px-2 py-1 text-xs font-bold text-slate-400 xl:flex">
-                <Command className="h-3 w-3" /> K
-              </div>
+            <div className="hidden flex-1 items-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 py-2.5 shadow-sm md:flex">
+              <span className="text-xs font-bold uppercase tracking-[0.16em] text-slate-300">
+                {roleLabel(role)}
+              </span>
+              <span className="hidden text-sm text-slate-300 lg:inline">
+                · {displayName}
+              </span>
             </div>
             <div className="ml-auto flex items-center gap-2">
               <div className="relative" ref={notifRef}>
@@ -245,7 +244,6 @@ export function VetVikShell() {
                   <div className="absolute right-0 top-14 z-[90] w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-[1.5rem] border border-slate-700 bg-slate-950 shadow-2xl">
                     <div className="border-b border-slate-100 p-4">
                       <p className="font-black text-slate-950">Notifications</p>
-                      <p className="text-xs text-slate-500">Live backend notifications will appear here when connected.</p>
                     </div>
                     {notifications.length ? notifications.map((item) => (
                       <button key={item.title} className="flex w-full gap-3 border-b border-slate-50 p-4 text-left last:border-b-0 hover:bg-teal-50/50">
@@ -257,7 +255,7 @@ export function VetVikShell() {
                       </button>
                     )) : (
                       <div className="p-4 text-sm text-slate-500">
-                        No runtime notifications are shown until the backend notifications feed is available.
+                        No notification
                       </div>
                     )}
                   </div>
@@ -287,26 +285,16 @@ export function VetVikShell() {
                       <p className="text-sm font-black text-slate-950">{displayName}</p>
                       <p className="text-xs text-slate-500">{roleLabel(role)}</p>
                     </div>
-                    {[
-                      { icon: UserCircle, label: 'My Profile', path: profilePath },
-                      { icon: Settings, label: 'Account Settings', path: profilePath },
-                      { icon: Bell, label: 'Notifications', path: profilePath },
-                    ].map((item) => {
-                      const Icon = item.icon;
-                      return (
-                        <button
-                          key={item.label}
-                          onClick={() => {
-                            navigate(item.path);
-                            setProfileOpen(false);
-                          }}
-                          className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-bold text-slate-600 hover:bg-teal-50 hover:text-teal-700"
-                        >
-                          <Icon className="h-4 w-4" />
-                          {item.label}
-                        </button>
-                      );
-                    })}
+                    <button
+                      onClick={() => {
+                        navigate(profilePath);
+                        setProfileOpen(false);
+                      }}
+                      className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-bold text-slate-600 hover:bg-teal-50 hover:text-teal-700"
+                    >
+                      <UserCircle className="h-4 w-4" />
+                      My Profile
+                    </button>
                     <button
                       onClick={() => {
                         setProfileOpen(false);

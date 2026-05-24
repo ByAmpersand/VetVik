@@ -29,7 +29,8 @@ export function calcAge(birthDate: string | null | undefined): number {
 }
 
 export function mapAppointmentStatus(status: string): string {
-  if (status === 'Confirmed') return 'Scheduled';
+  if (status === 'Scheduled') return 'Awaiting';
+  if (status === 'Confirmed') return 'Accepted';
   return status;
 }
 
