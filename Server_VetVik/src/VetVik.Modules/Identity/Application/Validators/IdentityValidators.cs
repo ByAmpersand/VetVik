@@ -3,6 +3,12 @@ using VetVik.Modules.Identity.Application.DTOs;
 
 namespace VetVik.Modules.Identity.Application.Validators;
 
+internal static class IdentityValidationLimits
+{
+    /// <summary>Base64 data URLs for images up to 5 MB (matches the client gallery limit).</summary>
+    public const int PhotoUrlMaxLength = 7_200_000;
+}
+
 public sealed class RegisterOwnerRequestValidator : AbstractValidator<RegisterOwnerRequest>
 {
     public RegisterOwnerRequestValidator()
@@ -34,6 +40,7 @@ public sealed class UpdateCurrentUserProfileRequestValidator : AbstractValidator
     {
         RuleFor(x => x.FirstName).NotEmpty().MaximumLength(100);
         RuleFor(x => x.LastName).NotEmpty().MaximumLength(100);
+        RuleFor(x => x.PhotoUrl).MaximumLength(IdentityValidationLimits.PhotoUrlMaxLength);
     }
 }
 

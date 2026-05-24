@@ -3,6 +3,12 @@ using VetVik.Modules.Pets.Application.DTOs;
 
 namespace VetVik.Modules.Pets.Application.Validators;
 
+internal static class PetValidationLimits
+{
+    /// <summary>Base64 data URLs for images up to 5 MB (matches the client gallery limit).</summary>
+    public const int PhotoUrlMaxLength = 7_200_000;
+}
+
 public sealed class UpsertAnimalSpeciesRequestValidator : AbstractValidator<UpsertAnimalSpeciesRequest>
 {
     public UpsertAnimalSpeciesRequestValidator()
@@ -28,7 +34,7 @@ public sealed class CreatePetMineRequestValidator : AbstractValidator<CreatePetM
         RuleFor(x => x.SpeciesId).NotEmpty();
         RuleFor(x => x.Name).NotEmpty().MaximumLength(100);
         RuleFor(x => x.Weight).GreaterThan(0).When(x => x.Weight.HasValue);
-        RuleFor(x => x.PhotoUrl).MaximumLength(500);
+        RuleFor(x => x.PhotoUrl).MaximumLength(PetValidationLimits.PhotoUrlMaxLength);
         RuleFor(x => x.Notes).MaximumLength(1000);
         RuleFor(x => x.Sex).IsInEnum();
     }
@@ -42,7 +48,7 @@ public sealed class UpsertPetRequestValidator : AbstractValidator<UpsertPetReque
         RuleFor(x => x.SpeciesId).NotEmpty();
         RuleFor(x => x.Name).NotEmpty().MaximumLength(100);
         RuleFor(x => x.Weight).GreaterThan(0).When(x => x.Weight.HasValue);
-        RuleFor(x => x.PhotoUrl).MaximumLength(500);
+        RuleFor(x => x.PhotoUrl).MaximumLength(PetValidationLimits.PhotoUrlMaxLength);
         RuleFor(x => x.Notes).MaximumLength(1000);
         RuleFor(x => x.Sex).IsInEnum();
     }
