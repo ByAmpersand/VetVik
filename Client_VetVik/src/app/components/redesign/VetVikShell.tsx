@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../auth/AuthContext';
 import { roleLabel, type AppRole } from '../../auth/roles';
+import { formatDate, formatTime } from '../../data/formatters';
+import { categoryTone, useNotifications } from '../../hooks/useNotifications';
 import { cn } from './VetVikUI';
 
 interface NavItem {
@@ -87,10 +89,9 @@ const roleVisuals: Record<AppRole, { color: string; section: string }> = {
   },
 };
 
-const notifications: Array<{ title: string; detail: string; tone: string }> = [];
-
 export function VetVikShell() {
   const { user, logout } = useAuth();
+  const { items: notifications, unreadCount, markRead, markAllRead } = useNotifications();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -120,6 +121,19 @@ export function VetVikShell() {
   const visuals = roleVisuals[role];
   const displayName = [user.firstName, user.lastName].filter(Boolean).join(' ');
   const initials = `${user.firstName.charAt(0)}${user.lastName.charAt(0) || user.firstName.charAt(1) || ''}`.toUpperCase();
+
+  const profileAvatar = (
+    photoUrl?: string | null,
+    sizeClass = 'h-9 w-9 rounded-xl text-xs',
+  ) => (
+    photoUrl ? (
+      <img src={photoUrl} alt="" className={cn('object-cover', sizeClass)} />
+    ) : (
+      <div className={cn('grid place-items-center bg-gradient-to-br font-black text-white', visuals.color, sizeClass)}>
+        {initials}
+      </div>
+    )
+  );
   let profilePath = '/admin/profile';
   let routePrefix = '/admin';
   if (role === 'client') {
@@ -156,7 +170,7 @@ export function VetVikShell() {
 
       <div className="mb-5 rounded-[1.5rem] border border-white/70 bg-white/65 p-3 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className={cn('h-10 w-10 rounded-2xl bg-gradient-to-br shadow-inner', visuals.color)} />
+          {profileAvatar(user.photoUrl, 'h-10 w-10 rounded-2xl text-xs')}
           <div>
             <p className="text-sm font-black text-slate-950">{visuals.section}</p>
             <p className="text-xs text-slate-500">{displayName}</p>
@@ -236,26 +250,56 @@ export function VetVikShell() {
                   className="relative grid h-11 w-11 place-items-center rounded-2xl border border-white/80 bg-white/70 shadow-sm transition hover:bg-white"
                 >
                   <Bell className="h-4 w-4 text-slate-600" />
-                  {notifications.length > 0 ? (
-                    <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-teal-500 ring-2 ring-white" />
+                  {unreadCount > 0 ? (
+                    <span className="absolute right-2 top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-teal-500 px-1 text-[10px] font-black text-white ring-2 ring-white">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
                   ) : null}
                 </button>
                 {notifOpen && (
-                  <div className="absolute right-0 top-14 z-[90] w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-[1.5rem] border border-slate-700 bg-slate-950 shadow-2xl">
-                    <div className="border-b border-slate-100 p-4">
+                  <div className="absolute right-0 top-14 z-[90] w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-[1.5rem] border border-white/80 bg-white shadow-2xl">
+                    <div className="flex items-center justify-between border-b border-slate-100 p-4">
                       <p className="font-black text-slate-950">Notifications</p>
+                      {unreadCount > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => void markAllRead()}
+                          className="text-xs font-bold text-teal-700 hover:text-teal-900"
+                        >
+                          Mark all read
+                        </button>
+                      ) : null}
                     </div>
                     {notifications.length ? notifications.map((item) => (
-                      <button key={item.title} className="flex w-full gap-3 border-b border-slate-50 p-4 text-left last:border-b-0 hover:bg-teal-50/50">
-                        <span className={cn('mt-1 h-2.5 w-2.5 rounded-full', item.tone)} />
-                        <span>
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          if (!item.isRead) {
+                            void markRead(item.id);
+                          }
+                          if (item.linkPath) {
+                            navigate(item.linkPath);
+                            setNotifOpen(false);
+                          }
+                        }}
+                        className={cn(
+                          'flex w-full gap-3 border-b border-slate-50 p-4 text-left last:border-b-0 hover:bg-teal-50/50',
+                          !item.isRead && 'bg-teal-50/30',
+                        )}
+                      >
+                        <span className={cn('mt-1 h-2.5 w-2.5 shrink-0 rounded-full', categoryTone(item.category))} />
+                        <span className="min-w-0">
                           <span className="block text-sm font-black text-slate-900">{item.title}</span>
-                          <span className="text-xs text-slate-500">{item.detail}</span>
+                          <span className="mt-0.5 block text-xs text-slate-500">{item.message}</span>
+                          <span className="mt-1 block text-[11px] font-bold text-slate-400">
+                            {formatDate(item.createdAtUtc)} · {formatTime(item.createdAtUtc)}
+                          </span>
                         </span>
                       </button>
                     )) : (
                       <div className="p-4 text-sm text-slate-500">
-                        No notification
+                        No notifications yet
                       </div>
                     )}
                   </div>
@@ -270,9 +314,7 @@ export function VetVikShell() {
                   }}
                   className="flex items-center gap-2 rounded-2xl border border-white/80 bg-white/70 py-1.5 pl-1.5 pr-3 shadow-sm transition hover:bg-white"
                 >
-                  <div className={cn('grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br text-xs font-black text-white', visuals.color)}>
-                    {initials}
-                  </div>
+                  {profileAvatar(user.photoUrl)}
                   <div className="hidden text-left sm:block">
                     <p className="text-xs font-black leading-none text-slate-950">{displayName}</p>
                     <p className="mt-1 text-[11px] font-bold text-slate-400">{roleLabel(role)}</p>

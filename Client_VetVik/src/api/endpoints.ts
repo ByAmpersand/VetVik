@@ -20,6 +20,7 @@ import type {
   DoctorResponse,
   DoctorWorkingHourResponse,
   FindAvailableAppointmentSlotsRequest,
+  InboxNotificationsSummaryResponse,
   LoginRequest,
   MedicalRecordResponse,
   NotificationPreferencesResponse,
@@ -220,4 +221,11 @@ export const clientsApi = {
 
 export const analyticsApi = {
   adminInsights: () => http.get<AdminInsightsResponse>("/api/analytics/admin-insights"),
+};
+
+export const notificationsApi = {
+  inbox: (limit = 20) =>
+    http.get<InboxNotificationsSummaryResponse>(`/api/notifications?limit=${limit}`),
+  markRead: (id: string) => http.post<void>(`/api/notifications/${id}/read`),
+  markAllRead: () => http.post<void>("/api/notifications/read-all"),
 };

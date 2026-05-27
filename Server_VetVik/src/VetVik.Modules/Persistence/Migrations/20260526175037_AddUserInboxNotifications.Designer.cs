@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using VetVik.Modules.Persistence;
 
@@ -11,9 +12,11 @@ using VetVik.Modules.Persistence;
 namespace VetVik.Modules.Persistence.Migrations
 {
     [DbContext(typeof(VetVikDbContext))]
-    partial class VetVikDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260526175037_AddUserInboxNotifications")]
+    partial class AddUserInboxNotifications
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -506,9 +509,6 @@ namespace VetVik.Modules.Persistence.Migrations
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
-
-                    b.Property<int?>("ExperienceYears")
-                        .HasColumnType("int");
 
                     b.Property<string>("FirstName")
                         .IsRequired()

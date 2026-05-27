@@ -110,6 +110,7 @@ internal sealed class StaffService : IStaffService
             request.LastName,
             request.Bio,
             null,
+            request.ExperienceYears,
             true,
             request.SpecializationIds), ct);
 

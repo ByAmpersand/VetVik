@@ -92,7 +92,7 @@ public sealed class AppointmentsController : ControllerBase
     [HttpPost("{id:guid}/cancel")]
     public Task<AppointmentResponse> Cancel(
         Guid id, [FromBody] CancelAppointmentRequest req, CancellationToken ct) =>
-        _service.CancelAsync(id, req, ct);
+        _service.CancelAsync(id, req, _currentUser.UserId, ct);
 
     [HttpPost("{id:guid}/confirm")]
     [Authorize(Roles = $"{Roles.ClinicAdmin},{Roles.Doctor}")]

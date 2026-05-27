@@ -80,6 +80,7 @@ export interface DoctorViewModel {
   todayAppointments: number;
   totalAppointments: number;
   avatar: string;
+  avatarUrl?: string | null;
   experience: string;
 }
 
@@ -189,27 +190,13 @@ export function mapMedicalRecord(r: MedicalRecordResponse): MedicalRecordViewMod
   };
 }
 
-function formatDoctorExperience(appointments: AppointmentResponse[]): string {
-  if (!appointments.length) return 'New';
-  let earliestMs = Number.POSITIVE_INFINITY;
-  for (const appointment of appointments) {
-    const startMs = new Date(appointment.startAt).getTime();
-    if (Number.isFinite(startMs) && startMs < earliestMs) {
-      earliestMs = startMs;
-    }
+function formatDoctorExperience(experienceYears?: number | null): string {
+  if (experienceYears == null || !Number.isFinite(experienceYears) || experienceYears < 0) {
+    return 'Not set';
   }
-  if (!Number.isFinite(earliestMs)) return 'New';
-  const now = Date.now();
-  const diffMs = Math.max(0, now - earliestMs);
-  if (diffMs < 7 * 86_400_000) return 'New';
-  const days = Math.floor(diffMs / 86_400_000);
-  if (days < 30) return `${days} day${days === 1 ? '' : 's'}`;
-  const months = Math.floor(days / 30);
-  if (months < 12) return `${months} mo`;
-  const years = Math.floor(months / 12);
-  const leftoverMonths = months % 12;
-  if (leftoverMonths === 0) return `${years} yr`;
-  return `${years} yr ${leftoverMonths} mo`;
+
+  const rounded = Math.round(experienceYears);
+  return `${rounded} year${rounded === 1 ? '' : 's'}`;
 }
 
 export function mapDoctor(
@@ -229,7 +216,8 @@ export function mapDoctor(
     todayAppointments,
     totalAppointments: doctorAppointments.length,
     avatar: doctorInitials(d.firstName, d.lastName),
-    experience: formatDoctorExperience(doctorAppointments),
+    avatarUrl: d.photoUrl ?? null,
+    experience: formatDoctorExperience(d.experienceYears),
   };
 }
 

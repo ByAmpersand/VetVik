@@ -66,6 +66,7 @@ internal sealed class DoctorService : IDoctorService
             LastName = r.LastName,
             Bio = r.Bio,
             PhotoUrl = r.PhotoUrl,
+            ExperienceYears = r.ExperienceYears,
             IsActive = r.IsActive
         };
         _db.DoctorProfiles.Add(profile);
@@ -96,6 +97,7 @@ internal sealed class DoctorService : IDoctorService
         doctor.LastName = r.LastName;
         doctor.Bio = r.Bio;
         doctor.PhotoUrl = r.PhotoUrl;
+        doctor.ExperienceYears = r.ExperienceYears;
         doctor.IsActive = r.IsActive;
         doctor.UpdatedAt = _clock.UtcNow;
         await _db.SaveChangesAsync(ct);
@@ -167,6 +169,6 @@ internal sealed class DoctorService : IDoctorService
 
         return new DoctorResponse(
             d.Id, d.UserId, d.User?.Email ?? string.Empty,
-            d.FirstName, d.LastName, d.Bio, d.PhotoUrl, d.IsActive, specs);
+            d.FirstName, d.LastName, d.Bio, d.PhotoUrl, d.ExperienceYears, d.IsActive, specs);
     }
 }

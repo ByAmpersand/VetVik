@@ -488,43 +488,46 @@ export function DoctorCard({
     todayAppointments: number;
     totalAppointments?: number;
     avatar: string;
+    avatarUrl?: string | null;
     experience: string;
   };
   actions?: ReactNode;
 }) {
   return (
-    <Surface interactive className="p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500 to-teal-500 text-sm font-black text-white shadow-lg shadow-sky-500/20">
-            {doctor.avatar}
+    <Surface interactive className="flex h-full flex-col p-5">
+      <div className="flex-1">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-sky-500 to-teal-500 text-sm font-black text-white shadow-lg shadow-sky-500/20">
+              {doctor.avatarUrl ? <img src={doctor.avatarUrl} alt="" className="h-full w-full object-cover" /> : doctor.avatar}
+            </div>
+            <div className="min-w-0">
+              <h3 className="break-words font-black tracking-[-0.02em] text-white">{doctor.name}</h3>
+              <p className="line-clamp-2 min-h-[2.5rem] break-words text-sm leading-5 text-slate-400">{doctor.specialization}</p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <h3 className="break-words font-black tracking-[-0.02em] text-white">{doctor.name}</h3>
-            <p className="break-words text-sm text-slate-400">{doctor.specialization}</p>
+          <div className="flex-shrink-0">
+            <StatusBadge status={doctor.status} />
           </div>
         </div>
-        <div className="flex-shrink-0">
-          <StatusBadge status={doctor.status} />
+        <div className="mt-5 grid grid-cols-3 gap-2">
+          <div className="rounded-2xl border border-slate-700/60 bg-slate-800/60 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Today</p>
+            <p className="mt-1 text-xl font-black text-white">{doctor.todayAppointments}</p>
+          </div>
+          <div className="rounded-2xl border border-sky-400/25 bg-sky-500/10 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-sky-300">Visits</p>
+            <p className="mt-1 text-xl font-black text-sky-100">{doctor.totalAppointments ?? 0}</p>
+          </div>
+          <div className="rounded-2xl border border-teal-400/25 bg-teal-500/10 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal-200">Experience</p>
+            <p className="mt-1 text-base font-black leading-tight text-teal-100">{doctor.experience}</p>
+          </div>
         </div>
-      </div>
-      <div className="mt-5 grid grid-cols-3 gap-2">
-        <div className="rounded-2xl border border-slate-700/60 bg-slate-800/60 p-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Today</p>
-          <p className="mt-1 text-xl font-black text-white">{doctor.todayAppointments}</p>
+        <div className="mt-4 break-all text-sm text-slate-400">
+          <p>{doctor.email}</p>
+          <p>{doctor.phone}</p>
         </div>
-        <div className="rounded-2xl border border-sky-400/25 bg-sky-500/10 p-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-sky-300">Visits</p>
-          <p className="mt-1 text-xl font-black text-sky-100">{doctor.totalAppointments ?? 0}</p>
-        </div>
-        <div className="rounded-2xl border border-teal-400/25 bg-teal-500/10 p-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal-200">Experience</p>
-          <p className="mt-1 text-base font-black leading-tight text-teal-100">{doctor.experience}</p>
-        </div>
-      </div>
-      <div className="mt-4 break-all text-sm text-slate-400">
-        <p>{doctor.email}</p>
-        <p>{doctor.phone}</p>
       </div>
       {actions ? <div className="mt-4 flex flex-wrap gap-2">{actions}</div> : null}
     </Surface>
@@ -618,6 +621,7 @@ export function EmptyState({ title, description, action }: { title: string; desc
 export interface CalendarAppointment {
   id: string;
   time: string;
+  startAt?: string;
   petName: string;
   petSpecies: string;
   doctorId: string;
@@ -630,20 +634,37 @@ export interface CalendarAppointment {
 
 export function CalendarGrid({
   appointments,
+  range = 'day',
   onSelect,
   selectedId,
 }: {
   appointments: CalendarAppointment[];
+  range?: 'day' | 'week' | 'month';
   onSelect?: (appointmentId: string) => void;
   selectedId?: string | null;
 }) {
   const doctorMap = new Map<string, string>();
+  const dayMap = new Map<string, Date>();
   for (const appointment of appointments) {
     if (!doctorMap.has(appointment.doctorId)) {
       doctorMap.set(appointment.doctorId, appointment.doctorName);
     }
+    const startAt = appointment.startAt ? new Date(appointment.startAt) : null;
+    if (startAt && !Number.isNaN(startAt.getTime())) {
+      const dayKey = startAt.toISOString().slice(0, 10);
+      if (!dayMap.has(dayKey)) dayMap.set(dayKey, startAt);
+    }
   }
   const doctors = Array.from(doctorMap.entries()).map(([id, name]) => ({ id, name }));
+  const days = Array.from(dayMap.entries())
+    .sort((left, right) => left[1].getTime() - right[1].getTime())
+    .map(([key, date]) => ({
+      key,
+      label: date.toLocaleDateString(undefined, { day: '2-digit', month: 'short' }),
+    }));
+  const columns = range === 'day'
+    ? doctors.map((doctor) => ({ id: doctor.id, label: doctor.name, doctorId: doctor.id }))
+    : days.map((day) => ({ id: day.key, label: day.label, dayKey: day.key }));
   const hours = Array.from(new Set(appointments.map((appointment) => appointment.time))).sort((a, b) => {
     const parse = (label: string) => {
       const date = new Date(`1970-01-01 ${label}`);
@@ -655,7 +676,7 @@ export function CalendarGrid({
     return a.localeCompare(b);
   });
 
-  if (!appointments.length || !doctors.length || !hours.length) {
+  if (!appointments.length || !columns.length || !hours.length) {
     return (
       <EmptyState
         title="No appointments in this view"
@@ -664,9 +685,9 @@ export function CalendarGrid({
     );
   }
 
-  const doctorColumnMin = 200;
-  const totalMinWidth = 90 + doctors.length * doctorColumnMin;
-  const gridTemplateColumns = `90px repeat(${doctors.length}, minmax(${doctorColumnMin}px, 1fr))`;
+  const columnMin = range === 'day' ? 200 : 180;
+  const totalMinWidth = 90 + columns.length * columnMin;
+  const gridTemplateColumns = `90px repeat(${columns.length}, minmax(${columnMin}px, 1fr))`;
 
   return (
     <Surface className="overflow-hidden">
@@ -674,19 +695,26 @@ export function CalendarGrid({
         <div style={{ minWidth: `${totalMinWidth}px` }}>
           <div className="grid border-b border-slate-700 bg-slate-900/70" style={{ gridTemplateColumns }}>
             <div className="p-3 text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">Time</div>
-            {doctors.map((doctor) => (
-              <div key={doctor.id} className="border-l border-slate-700 p-3">
-                <p className="break-words text-sm font-black leading-tight text-white">{doctor.name}</p>
+            {columns.map((column) => (
+              <div key={column.id} className="border-l border-slate-700 p-3">
+                <p className="break-words text-sm font-black leading-tight text-white">{column.label}</p>
               </div>
             ))}
           </div>
           {hours.map((hour) => (
             <div key={hour} className="grid min-h-[96px] border-b border-slate-700 last:border-b-0" style={{ gridTemplateColumns }}>
               <div className="p-3 text-xs font-bold text-slate-400">{hour}</div>
-              {doctors.map((doctor) => {
-                const blocks = appointments.filter((a) => a.doctorId === doctor.id && a.time === hour);
+              {columns.map((column) => {
+                const blocks = appointments.filter((appointment) => {
+                  if (appointment.time !== hour) return false;
+                  if (range === 'day') return appointment.doctorId === column.doctorId;
+                  if (!column.dayKey || !appointment.startAt) return false;
+                  const startAt = new Date(appointment.startAt);
+                  if (Number.isNaN(startAt.getTime())) return false;
+                  return startAt.toISOString().slice(0, 10) === column.dayKey;
+                });
                 return (
-                  <div key={doctor.id} className="relative space-y-2 border-l border-slate-700 p-2">
+                  <div key={column.id} className="relative space-y-2 border-l border-slate-700 p-2">
                     {blocks.map((appointment) => (
                       <AppointmentBlock
                         key={appointment.id}
@@ -722,7 +750,7 @@ export function AppointmentBlock({
   onClick,
   selected,
 }: {
-  appointment: { petName: string; petSpecies: string; service: string; status: string; time: string; roomName?: string };
+  appointment: { petName: string; petSpecies: string; service: string; status: string; time: string; doctorName?: string; roomName?: string };
   tone?: Tone;
   onClick?: () => void;
   selected?: boolean;
@@ -756,6 +784,12 @@ export function AppointmentBlock({
         <div className="min-w-0 flex-1">
           <p className="break-words text-sm font-black leading-tight">{appointment.petName}</p>
           <p className="mt-0.5 break-words text-[11px] leading-snug opacity-80">{appointment.service}</p>
+          {appointment.doctorName ? (
+            <p className="mt-1 inline-flex items-center gap-1 break-words text-[10px] font-bold uppercase tracking-[0.12em] opacity-80">
+              <Stethoscope className="h-3 w-3 flex-shrink-0" />
+              <span className="break-words">{appointment.doctorName}</span>
+            </p>
+          ) : null}
           {appointment.roomName ? (
             <p className="mt-1 inline-flex items-center gap-1 break-words text-[10px] font-bold uppercase tracking-[0.12em] opacity-80">
               <DoorOpen className="h-3 w-3 flex-shrink-0" />

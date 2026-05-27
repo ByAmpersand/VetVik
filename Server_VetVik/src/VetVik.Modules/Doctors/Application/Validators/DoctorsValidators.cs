@@ -22,6 +22,7 @@ public sealed class CreateDoctorRequestValidator : AbstractValidator<CreateDocto
         RuleFor(x => x.LastName).NotEmpty().MaximumLength(100);
         RuleFor(x => x.Bio).MaximumLength(1000);
         RuleFor(x => x.PhotoUrl).MaximumLength(DoctorValidationLimits.PhotoUrlMaxLength);
+        RuleFor(x => x.ExperienceYears).InclusiveBetween(0, 80).When(x => x.ExperienceYears.HasValue);
     }
 }
 
@@ -33,6 +34,7 @@ public sealed class UpdateDoctorRequestValidator : AbstractValidator<UpdateDocto
         RuleFor(x => x.LastName).NotEmpty().MaximumLength(100);
         RuleFor(x => x.Bio).MaximumLength(1000);
         RuleFor(x => x.PhotoUrl).MaximumLength(DoctorValidationLimits.PhotoUrlMaxLength);
+        RuleFor(x => x.ExperienceYears).InclusiveBetween(0, 80).When(x => x.ExperienceYears.HasValue);
     }
 }
 

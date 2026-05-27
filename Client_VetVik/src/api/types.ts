@@ -64,6 +64,22 @@ export interface NotificationPreferencesResponse {
   clinicAnnouncements: boolean;
 }
 
+export interface InboxNotificationResponse {
+  id: string;
+  title: string;
+  message: string;
+  category: string;
+  linkPath?: string | null;
+  relatedEntityId?: string | null;
+  isRead: boolean;
+  createdAtUtc: string;
+}
+
+export interface InboxNotificationsSummaryResponse {
+  items: InboxNotificationResponse[];
+  unreadCount: number;
+}
+
 // --- Clinic ---
 export type DayOfWeekValue =
   | number
@@ -190,6 +206,7 @@ export interface DoctorResponse {
   lastName: string;
   bio?: string | null;
   photoUrl?: string | null;
+  experienceYears?: number | null;
   isActive: boolean;
   specializations: SpecializationResponse[];
 }
@@ -210,6 +227,7 @@ export interface CreateDoctorRequest {
   lastName: string;
   bio?: string | null;
   photoUrl?: string | null;
+  experienceYears?: number | null;
   isActive: boolean;
   specializationIds?: string[] | null;
 }
@@ -219,6 +237,7 @@ export interface UpdateDoctorRequest {
   lastName: string;
   bio?: string | null;
   photoUrl?: string | null;
+  experienceYears?: number | null;
   isActive: boolean;
 }
 
@@ -382,6 +401,7 @@ export interface CreateDoctorStaffRequest {
   firstName: string;
   lastName: string;
   bio?: string | null;
+  experienceYears?: number | null;
   specializationIds?: string[] | null;
 }
 

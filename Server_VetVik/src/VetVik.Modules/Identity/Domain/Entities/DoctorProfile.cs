@@ -12,6 +12,7 @@ public class DoctorProfile : BaseEntity, IAuditableEntity
     public string LastName { get; set; } = string.Empty;
     public string? Bio { get; set; }
     public string? PhotoUrl { get; set; }
+    public int? ExperienceYears { get; set; }
     public bool IsActive { get; set; } = true;
 
     public List<DoctorSpecialization> DoctorSpecializations { get; set; } = new();

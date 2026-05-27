@@ -183,14 +183,40 @@ function toDateTimeInputValue(value?: string | null): string {
 
 function timeValue(value?: string | null): string {
   if (!value) return '09:00';
-  const parts = value.split(':');
-  return `${parts[0] ?? '09'}:${parts[1] ?? '00'}`;
+  const trimmed = value.trim();
+  const twentyFourHour = /^([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/.exec(trimmed);
+  if (twentyFourHour) {
+    const hours = twentyFourHour[1].padStart(2, '0');
+    const minutes = twentyFourHour[2];
+    return `${hours}:${minutes}`;
+  }
+
+  const amPm = /^(0?[1-9]|1[0-2]):([0-5]\d)\s*(am|pm)$/i.exec(trimmed);
+  if (amPm) {
+    const rawHours = Number(amPm[1]);
+    const minutes = amPm[2];
+    const meridiem = amPm[3].toLowerCase();
+    const normalizedHours = meridiem === 'pm'
+      ? (rawHours % 12) + 12
+      : rawHours % 12;
+    return `${String(normalizedHours).padStart(2, '0')}:${minutes}`;
+  }
+
+  return '09:00';
 }
 
 function parseNumber(value: string): number | null {
   if (!value.trim()) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseExperienceYears(value: string): number | null {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  const whole = Math.round(parsed);
+  return Math.max(0, whole);
 }
 
 function toggleSelection(values: string[], value: string): string[] {
@@ -501,6 +527,7 @@ function AppointmentFormDialog({
   pets,
   clients,
   doctors,
+  fixedDoctorId,
   rooms,
   services,
   loading,
@@ -516,15 +543,18 @@ function AppointmentFormDialog({
   pets: AppointmentPet[];
   clients?: AppointmentClient[];
   doctors: DoctorResponse[];
+  fixedDoctorId?: string | null;
   rooms: Array<{ id: string; name: string }>;
   services: AppointmentService[];
   loading: boolean;
   error: string | null;
   onClose: () => void;
   onSubmit: (body: CreateAppointmentRequest | UpdateAppointmentRequest) => Promise<void>;
-  variant?: 'owner' | 'clinic';
+  variant?: 'owner' | 'clinic' | 'doctor';
 }>) {
   const isOwnerBooking = variant === 'owner';
+  const isDoctorBooking = variant === 'doctor';
+  const resolvedDoctorId = isDoctorBooking ? (fixedDoctorId ?? '') : '';
   const bookableDoctors = useMemo(
     () => doctors.filter((doctor) => doctor.isActive),
     [doctors],
@@ -549,9 +579,12 @@ function AppointmentFormDialog({
 
   useEffect(() => {
     if (!open) return;
-    setDraft(buildAppointmentDraft(appointment));
+    setDraft({
+      ...buildAppointmentDraft(appointment),
+      doctorId: appointment?.doctorId ?? resolvedDoctorId,
+    });
     setFieldErrors({});
-    setBookingMode(isOwnerBooking ? 'specific-doctor' : 'first-available');
+    setBookingMode(isOwnerBooking || isDoctorBooking ? 'specific-doctor' : 'first-available');
     setPreferredDate(formatDateInput(appointment?.startAt ? new Date(appointment.startAt) : new Date()));
     setTimeWindow('any');
     setAvailableSlots([]);
@@ -564,7 +597,7 @@ function AppointmentFormDialog({
     }
     const initialService = services.find((service) => service.id === appointment?.serviceId);
     setServiceCategoryId(initialService?.categoryId ?? 'all');
-  }, [appointment, isOwnerBooking, open, initialOwnerIdFromAppointment, initialOwnerIdFromPet, services]);
+  }, [appointment, isDoctorBooking, isOwnerBooking, open, resolvedDoctorId, initialOwnerIdFromAppointment, initialOwnerIdFromPet, services]);
 
   const filteredClients = useMemo(() => {
     if (!clients?.length) return [] as AppointmentClient[];
@@ -612,7 +645,7 @@ function AppointmentFormDialog({
       setSlotsError(null);
       return;
     }
-    if (bookingMode === 'specific-doctor' && !draft.doctorId) {
+    if (bookingMode === 'specific-doctor' && !draft.doctorId && !resolvedDoctorId) {
       setAvailableSlots([]);
       setSlotsError(null);
       return;
@@ -634,7 +667,7 @@ function AppointmentFormDialog({
         serviceId: draft.serviceId,
         from: fromLocal.toISOString(),
         to: toLocal.toISOString(),
-        doctorId: bookingMode === 'specific-doctor' ? draft.doctorId : null,
+        doctorId: bookingMode === 'specific-doctor' ? (resolvedDoctorId || draft.doctorId) : null,
         stepMinutes: SLOT_INTERVAL_MINUTES,
         maxSlots: 60,
       })
@@ -672,23 +705,24 @@ function AppointmentFormDialog({
     return () => {
       isCancelled = true;
     };
-  }, [draft.doctorId, draft.serviceId, open, bookingMode, preferredDate, timeWindow]);
+  }, [draft.doctorId, draft.serviceId, open, bookingMode, preferredDate, resolvedDoctorId, timeWindow]);
 
   const selectedSlotValue = useMemo(() => {
-    if (!draft.doctorId || !draft.startAt) return '';
+    const doctorId = resolvedDoctorId || draft.doctorId;
+    if (!doctorId || !draft.startAt) return '';
     const matched = availableSlots.find(
       (slot) =>
-        slot.doctorId === draft.doctorId &&
+        slot.doctorId === doctorId &&
         toDateTimeInputValue(slot.startsAt.toISOString()) === draft.startAt,
     );
     if (matched) return matched.value;
-    return buildSlotKey(draft.doctorId, draft.roomId, new Date(draft.startAt));
-  }, [availableSlots, draft.doctorId, draft.roomId, draft.startAt]);
+    return buildSlotKey(doctorId, draft.roomId, new Date(draft.startAt));
+  }, [availableSlots, draft.doctorId, draft.roomId, draft.startAt, resolvedDoctorId]);
 
   const slotOptions: SelectOption[] = useMemo(
     () =>
       availableSlots.map((slot) => {
-        const timeLabel = slot.startsAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const timeLabel = slot.startsAt.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', hour12: false });
         return {
           value: slot.value,
           label: slot.roomName
@@ -715,7 +749,7 @@ function AppointmentFormDialog({
     if (!isOwnerBooking && !selectedOwnerId) nextErrors.ownerId = 'Owner is required.';
     if (!draft.petId) nextErrors.petId = 'Pet is required.';
     if (!draft.serviceId) nextErrors.serviceId = 'Procedure is required.';
-    if (bookingMode === 'specific-doctor' && !draft.doctorId) {
+    if (bookingMode === 'specific-doctor' && !draft.doctorId && !resolvedDoctorId) {
       nextErrors.doctorId = 'Doctor is required.';
     }
     if (!draft.startAt) nextErrors.startAt = 'Start time is required.';
@@ -724,7 +758,7 @@ function AppointmentFormDialog({
 
     const payload: CreateAppointmentRequest = {
       petId: draft.petId,
-      doctorId: draft.doctorId || null,
+      doctorId: resolvedDoctorId || draft.doctorId || null,
       serviceId: draft.serviceId,
       startAt: new Date(draft.startAt).toISOString(),
       endAt: null,
@@ -754,7 +788,7 @@ function AppointmentFormDialog({
     ? 'Select procedure first'
     : slotsLoading
       ? 'Loading available slots...'
-      : bookingMode === 'specific-doctor' && !draft.doctorId
+      : bookingMode === 'specific-doctor' && !draft.doctorId && !resolvedDoctorId
         ? 'Select doctor first'
         : slotOptions.length
           ? 'Pick a free slot'
@@ -862,7 +896,7 @@ function AppointmentFormDialog({
                 ...prev,
                 serviceId: value,
                 startAt: '',
-                doctorId: bookingMode === 'specific-doctor' ? prev.doctorId : '',
+                doctorId: resolvedDoctorId || (bookingMode === 'specific-doctor' ? prev.doctorId : ''),
               }))
             }
             options={filteredServices.map((service) => ({
@@ -872,24 +906,26 @@ function AppointmentFormDialog({
             placeholder={filteredServices.length ? 'Select procedure' : 'No procedures available'}
             error={fieldErrors.serviceId}
           />
-          <FormSelect
-            label={isOwnerBooking ? 'Booking preference' : 'Slot search mode'}
-            value={bookingMode}
-            onChange={(value) => {
-              const nextMode = value as BookingMode;
-              setBookingMode(nextMode);
-              setDraft((prev) => ({
-                ...prev,
-                startAt: '',
-                doctorId: nextMode === 'specific-doctor' ? prev.doctorId : '',
-              }));
-            }}
-            options={[
-              { value: 'first-available', label: 'Any doctor — search by time' },
-              { value: 'specific-doctor', label: 'Specific doctor — show their free hours' },
-            ]}
-          />
-          {bookingMode === 'specific-doctor' ? (
+          {!isDoctorBooking ? (
+            <FormSelect
+              label={isOwnerBooking ? 'Booking preference' : 'Slot search mode'}
+              value={bookingMode}
+              onChange={(value) => {
+                const nextMode = value as BookingMode;
+                setBookingMode(nextMode);
+                setDraft((prev) => ({
+                  ...prev,
+                  startAt: '',
+                  doctorId: nextMode === 'specific-doctor' ? prev.doctorId : '',
+                }));
+              }}
+              options={[
+                { value: 'first-available', label: 'Any doctor — search by time' },
+                { value: 'specific-doctor', label: 'Specific doctor — show their free hours' },
+              ]}
+            />
+          ) : null}
+          {bookingMode === 'specific-doctor' && !isDoctorBooking ? (
             <FormSelect
               label="Doctor"
               value={draft.doctorId}
@@ -957,7 +993,7 @@ function AppointmentFormDialog({
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 {availableSlots.slice(0, 12).map((slot) => {
                   const isSelected = selectedSlotValue === slot.value;
-                  const slotTime = slot.startsAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                  const slotTime = slot.startsAt.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', hour12: false });
                   return (
                     <button
                       key={slot.value}
@@ -1160,6 +1196,7 @@ function buildMedicalRecordDraft(record?: MedicalRecordResponse | null) {
 function MedicalRecordEditor({
   record,
   appointmentId,
+  appointmentStatus,
   loading,
   error,
   onSave,
@@ -1167,6 +1204,7 @@ function MedicalRecordEditor({
 }: Readonly<{
   record?: MedicalRecordResponse | null;
   appointmentId: string;
+  appointmentStatus: string;
   loading: boolean;
   error: string | null;
   onSave: (body: CreateMedicalRecordRequest | UpdateMedicalRecordRequest) => Promise<void>;
@@ -1185,32 +1223,50 @@ function MedicalRecordEditor({
     treatment: draft.treatment.trim() || null,
     recommendations: draft.recommendations.trim() || null,
   };
+  const isAccepted = appointmentStatus === 'Accepted';
+  const isCompleted = appointmentStatus === 'Completed';
+  const canSaveNote = isCompleted || Boolean(record);
+  const canCompleteWithNote = isAccepted;
+  const isReadOnly = !canSaveNote && !canCompleteWithNote;
 
   return (
     <Surface className="p-5">
       <SectionHeader
         title="Clinical note"
-        description="Write symptoms, diagnosis, treatment and recommendations directly against the appointment."
+        description={
+          isAccepted
+            ? 'Write the clinical note, then complete the visit to save it to the medical record.'
+            : 'Write symptoms, diagnosis, treatment and recommendations directly against the appointment.'
+        }
       />
       <div className="grid gap-4">
-        <FormTextArea label="Symptoms" value={draft.symptoms} onChange={(value) => setDraft((prev) => ({ ...prev, symptoms: value }))} />
-        <FormTextArea label="Diagnosis" value={draft.diagnosis} onChange={(value) => setDraft((prev) => ({ ...prev, diagnosis: value }))} />
-        <FormTextArea label="Treatment" value={draft.treatment} onChange={(value) => setDraft((prev) => ({ ...prev, treatment: value }))} />
-        <FormTextArea label="Recommendations" value={draft.recommendations} onChange={(value) => setDraft((prev) => ({ ...prev, recommendations: value }))} />
+        <FormTextArea label="Symptoms" value={draft.symptoms} disabled={isReadOnly} onChange={(value) => setDraft((prev) => ({ ...prev, symptoms: value }))} />
+        <FormTextArea label="Diagnosis" value={draft.diagnosis} disabled={isReadOnly} onChange={(value) => setDraft((prev) => ({ ...prev, diagnosis: value }))} />
+        <FormTextArea label="Treatment" value={draft.treatment} disabled={isReadOnly} onChange={(value) => setDraft((prev) => ({ ...prev, treatment: value }))} />
+        <FormTextArea label="Recommendations" value={draft.recommendations} disabled={isReadOnly} onChange={(value) => setDraft((prev) => ({ ...prev, recommendations: value }))} />
       </div>
       <FormErrorMessage message={error} />
+      {isReadOnly ? (
+        <p className="mt-4 rounded-2xl border border-slate-700 bg-slate-950/60 p-3 text-sm text-slate-400">
+          This appointment is {appointmentStatus.toLowerCase()}, so it cannot be completed or saved as a new medical record.
+        </p>
+      ) : null}
       <div className="mt-5 flex flex-wrap gap-3">
-        <PrimaryButton
-          variant="secondary"
-          icon={Save}
-          disabled={loading}
-          onClick={() => void onSave(payload)}
-        >
-          {record ? 'Update note' : 'Save note'}
-        </PrimaryButton>
-        <PrimaryButton icon={CheckCircle2} disabled={loading} onClick={() => void onComplete(payload)}>
-          Complete visit
-        </PrimaryButton>
+        {canSaveNote ? (
+          <PrimaryButton
+            variant="secondary"
+            icon={Save}
+            disabled={loading}
+            onClick={() => void onSave(payload)}
+          >
+            {record ? 'Update note' : 'Save note'}
+          </PrimaryButton>
+        ) : null}
+        {canCompleteWithNote ? (
+          <PrimaryButton icon={CheckCircle2} disabled={loading} onClick={() => void onComplete(payload)}>
+            Complete visit & save note
+          </PrimaryButton>
+        ) : null}
       </div>
     </Surface>
   );
@@ -1304,7 +1360,7 @@ function DoctorAccountDialog({
   error: string | null;
   onClose: () => void;
   onCreate: (body: CreateDoctorStaffRequest) => Promise<void>;
-  onUpdate: (body: { firstName: string; lastName: string; bio: string; isActive: boolean; specializationIds: string[] }) => Promise<void>;
+  onUpdate: (body: { firstName: string; lastName: string; bio: string; isActive: boolean; experienceYears: number | null; specializationIds: string[] }) => Promise<void>;
 }>) {
   const [draft, setDraft] = useState({
     email: doctor?.email ?? '',
@@ -1312,6 +1368,7 @@ function DoctorAccountDialog({
     firstName: doctor?.firstName ?? '',
     lastName: doctor?.lastName ?? '',
     bio: doctor?.bio ?? '',
+    experienceYears: doctor?.experienceYears != null ? String(doctor.experienceYears) : '',
     isActive: doctor?.isActive ?? true,
     specializationIds: doctor?.specializations.map((item) => item.id) ?? [],
   });
@@ -1325,6 +1382,7 @@ function DoctorAccountDialog({
         firstName: doctor?.firstName ?? '',
         lastName: doctor?.lastName ?? '',
         bio: doctor?.bio ?? '',
+        experienceYears: doctor?.experienceYears != null ? String(doctor.experienceYears) : '',
         isActive: doctor?.isActive ?? true,
         specializationIds: doctor?.specializations.map((item) => item.id) ?? [],
       });
@@ -1339,6 +1397,12 @@ function DoctorAccountDialog({
     const lastNameError = validateName(draft.lastName, 'Last name');
     if (firstNameError) nextErrors.firstName = firstNameError;
     if (lastNameError) nextErrors.lastName = lastNameError;
+    if (draft.experienceYears.trim()) {
+      const normalizedExperience = parseExperienceYears(draft.experienceYears);
+      if (normalizedExperience == null || normalizedExperience > 80) {
+        nextErrors.experienceYears = 'Experience must be between 0 and 80 years.';
+      }
+    }
     if (!doctor) {
       const emailError = validateEmail(draft.email);
       const passwordError = validatePassword(draft.password);
@@ -1353,6 +1417,7 @@ function DoctorAccountDialog({
         firstName: draft.firstName.trim(),
         lastName: draft.lastName.trim(),
         bio: draft.bio.trim(),
+        experienceYears: parseExperienceYears(draft.experienceYears),
         isActive: draft.isActive,
         specializationIds: draft.specializationIds,
       });
@@ -1365,6 +1430,7 @@ function DoctorAccountDialog({
       firstName: draft.firstName.trim(),
       lastName: draft.lastName.trim(),
       bio: draft.bio.trim() || null,
+      experienceYears: parseExperienceYears(draft.experienceYears),
       specializationIds: draft.specializationIds,
     });
   };
@@ -1389,6 +1455,18 @@ function DoctorAccountDialog({
         </FormGrid>
         <div className="mt-4">
           <FormTextArea label="Bio" value={draft.bio} onChange={(value) => setDraft((prev) => ({ ...prev, bio: value }))} placeholder="Short clinic bio..." rows={3} />
+        </div>
+        <div className="mt-4">
+          <FormField
+            label="Experience (years)"
+            type="number"
+            min={0}
+            step={1}
+            value={draft.experienceYears}
+            onChange={(value) => setDraft((prev) => ({ ...prev, experienceYears: value }))}
+            placeholder="e.g. 5"
+            error={fieldErrors.experienceYears}
+          />
         </div>
         <div className="mt-4">
           <FormCheckboxList
@@ -1498,7 +1576,7 @@ function ClinicSettingsEditor({
                 <div key={hour.dayOfWeek} className="grid items-center gap-3 rounded-2xl border border-slate-800 bg-slate-950 p-3 sm:grid-cols-[130px_140px_140px_90px]">
                   <p className="text-sm font-black uppercase tracking-wide text-slate-100">{dayLabel(hour.dayOfWeek)}</p>
                   <input
-                    value={timeValue(hour.openTime)}
+                    value={hour.openTime}
                     onChange={(event) =>
                       setDraft((prev) => ({
                         ...prev,
@@ -1507,12 +1585,22 @@ function ClinicSettingsEditor({
                         ),
                       }))
                     }
-                    type="time"
+                    onBlur={(event) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        workingHours: workingHours.map((item) =>
+                          item.dayOfWeek === hour.dayOfWeek ? { ...item, openTime: timeValue(event.target.value) } : item,
+                        ),
+                      }))
+                    }
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="09:00"
                     disabled={!hour.isWorkingDay}
                     className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 disabled:opacity-40"
                   />
                   <input
-                    value={timeValue(hour.closeTime)}
+                    value={hour.closeTime}
                     onChange={(event) =>
                       setDraft((prev) => ({
                         ...prev,
@@ -1521,7 +1609,17 @@ function ClinicSettingsEditor({
                         ),
                       }))
                     }
-                    type="time"
+                    onBlur={(event) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        workingHours: workingHours.map((item) =>
+                          item.dayOfWeek === hour.dayOfWeek ? { ...item, closeTime: timeValue(event.target.value) } : item,
+                        ),
+                      }))
+                    }
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="18:00"
                     disabled={!hour.isWorkingDay}
                     className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 disabled:opacity-40"
                   />
@@ -2271,11 +2369,29 @@ type DoctorAppointmentFilter = (typeof DOCTOR_APPOINTMENT_FILTERS)[number];
 
 export function RedesignedDoctorAppointments() {
   const appointmentsState = useDoctorAppointments();
+  const profileState = useCurrentUserProfile();
+  const clientsState = useClientsDirectory();
+  const petsState = useAllPets();
+  const roomsState = useRooms();
+  const servicesState = useServices();
   const navigate = useNavigate();
   const { confirm, reject, complete, cancel, busyId } = useAppointmentActions(() => appointmentsState.reload());
   const doctorAppointments = useMemo(() => appointmentsState.data.map(mapAppointment), [appointmentsState.data]);
   const [filter, setFilter] = useState<DoctorAppointmentFilter>('All');
   const [search, setSearch] = useState('');
+  const [bookingOpen, setBookingOpen] = useState(false);
+  const [savingBooking, setSavingBooking] = useState(false);
+  const [bookingError, setBookingError] = useState<string | null>(null);
+  const currentDoctorId = profileState.data.profileId ?? appointmentsState.data[0]?.doctorId ?? '';
+  const bookingReady =
+    Boolean(currentDoctorId)
+    && !profileState.loading
+    && !clientsState.loading
+    && !petsState.loading
+    && !roomsState.loading
+    && !servicesState.loading;
+  const bookingDataError =
+    profileState.error ?? clientsState.error ?? petsState.error ?? roomsState.error ?? servicesState.error ?? null;
 
   const filteredAppointments = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -2287,10 +2403,43 @@ export function RedesignedDoctorAppointments() {
     });
   }, [doctorAppointments, filter, search]);
 
+  const openBooking = () => {
+    if (!currentDoctorId) {
+      setBookingError('Could not detect your doctor profile. Please refresh and try again.');
+      return;
+    }
+
+    setBookingError(null);
+    setBookingOpen(true);
+  };
+
+  const handleCreateAppointment = async (body: CreateAppointmentRequest | UpdateAppointmentRequest) => {
+    setSavingBooking(true);
+    setBookingError(null);
+    try {
+      await appointmentsApi.create({
+        ...(body as CreateAppointmentRequest),
+        doctorId: currentDoctorId,
+      });
+      setBookingOpen(false);
+      appointmentsState.reload();
+    } catch (error) {
+      setBookingError(formatApiError(error, 'Could not create the appointment.'));
+    } finally {
+      setSavingBooking(false);
+    }
+  };
+
   return (
-    <DataState loading={appointmentsState.loading} error={appointmentsState.error}>
+    <DataState loading={appointmentsState.loading} error={appointmentsState.error ?? bookingDataError}>
     <div className="space-y-6">
-      <PageHeader eyebrow="Doctor appointments" title="Clinical queue with patient and owner context." description="Time, reason, status, and actions remain visible without table fatigue." icon={ClipboardIcon} />
+      <PageHeader
+        eyebrow="Doctor appointments"
+        title="Clinical queue with patient and owner context."
+        description="Time, reason, status, and actions remain visible without table fatigue."
+        icon={ClipboardIcon}
+        actions={<PrimaryButton icon={Plus} disabled={!bookingReady} onClick={openBooking}>New appointment</PrimaryButton>}
+      />
       <FilterBar
         filters={[...DOCTOR_APPOINTMENT_FILTERS]}
         activeFilter={filter}
@@ -2348,7 +2497,40 @@ export function RedesignedDoctorAppointments() {
           />
         ))}
       </div>
+      {!filteredAppointments.length ? (
+        <EmptyState
+          title={doctorAppointments.length ? 'No appointments for current filters' : 'No appointments yet'}
+          description={
+            doctorAppointments.length
+              ? 'Try another status or search phrase.'
+              : 'Create an appointment when a client calls the clinic, and it will appear here.'
+          }
+          action={<PrimaryButton icon={Plus} disabled={!bookingReady} onClick={openBooking}>Create appointment</PrimaryButton>}
+        />
+      ) : null}
     </div>
+    <AppointmentFormDialog
+      open={bookingOpen}
+      title="Create appointment"
+      description="Choose owner, pet, procedure and one of your available slots."
+      variant="doctor"
+      fixedDoctorId={currentDoctorId}
+      pets={petsState.data.map((pet) => ({ id: pet.id, name: pet.name, ownerId: pet.ownerId, ownerName: pet.ownerFullName }))}
+      clients={clientsState.data}
+      doctors={[]}
+      rooms={roomsState.data.map((room) => ({ id: room.id, name: room.name }))}
+      services={servicesState.data.map((service) => ({
+        id: service.id,
+        name: service.name,
+        categoryId: service.categoryId,
+        categoryName: service.categoryName,
+        durationMinutes: service.durationMinutes,
+      }))}
+      loading={savingBooking}
+      error={bookingError}
+      onClose={() => setBookingOpen(false)}
+      onSubmit={handleCreateAppointment}
+    />
     </DataState>
   );
 }
@@ -2379,6 +2561,11 @@ export function RedesignedMedicalNotes() {
   }
 
   const handleSave = async (body: CreateMedicalRecordRequest | UpdateMedicalRecordRequest) => {
+    if (!recordState.data && appointmentView?.status !== 'Completed') {
+      setActionError('Complete the visit before saving a medical note.');
+      return;
+    }
+
     setSaving(true);
     setActionError(null);
     try {
@@ -2400,12 +2587,15 @@ export function RedesignedMedicalNotes() {
     setSaving(true);
     setActionError(null);
     try {
+      if (appointmentView?.status !== 'Completed') {
+        await appointmentsApi.complete(params.id);
+      }
+
       if (recordState.data) {
         await medicalRecordsApi.update(recordState.data.id, body as UpdateMedicalRecordRequest);
       } else {
         await medicalRecordsApi.create(body as CreateMedicalRecordRequest);
       }
-      await appointmentsApi.complete(params.id);
       recordState.reload();
       appointmentsState.reload();
     } catch (error) {
@@ -2450,6 +2640,7 @@ export function RedesignedMedicalNotes() {
           <MedicalRecordEditor
             record={recordState.data}
             appointmentId={params.id}
+            appointmentStatus={appointmentView.status}
             loading={saving}
             error={actionError}
             onSave={handleSave}
@@ -2636,6 +2827,7 @@ export function RedesignedClinicCalendar() {
   const [roomFilter, setRoomFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
 
   const boundaries = useMemo(() => rangeBoundaries(range, anchorDate), [range, anchorDate]);
   const appointmentsState = useAdminAppointments(boundaries.from.toISOString(), boundaries.to.toISOString());
@@ -2667,9 +2859,14 @@ export function RedesignedClinicCalendar() {
     });
   }, [allAppointments, boundaries.from, boundaries.to, statusFilter, doctorFilter, roomFilter, searchQuery]);
 
-  const selectedAppointment = filteredAppointments.find((appointment) => appointment.id === selectedId)
-    ?? filteredAppointments[0]
-    ?? null;
+  const selectedAppointment = filteredAppointments.find((appointment) => appointment.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (selectedId && !selectedAppointment) {
+      setSelectedId(null);
+      setDetailDialogOpen(false);
+    }
+  }, [selectedId, selectedAppointment]);
 
   const roomOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -2749,15 +2946,6 @@ export function RedesignedClinicCalendar() {
         </div>
       </Surface>
 
-      <FilterBar
-        filters={[...CALENDAR_STATUS_FILTERS]}
-        activeFilter={statusFilter}
-        onFilterChange={(value) => setStatusFilter(value as CalendarStatusFilter)}
-        searchPlaceholder="Search pet, owner, doctor, room..."
-        searchValue={searchQuery}
-        onSearchChange={setSearchQuery}
-      />
-
       <Surface className="p-3">
         <div className="flex flex-col gap-3 sm:flex-row">
           <FormSelect
@@ -2784,24 +2972,43 @@ export function RedesignedClinicCalendar() {
         </div>
       </Surface>
 
-      <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
+      <FilterBar
+        filters={[...CALENDAR_STATUS_FILTERS]}
+        activeFilter={statusFilter}
+        onFilterChange={(value) => setStatusFilter(value as CalendarStatusFilter)}
+        searchPlaceholder="Search pet, owner, doctor, room..."
+        searchValue={searchQuery}
+        onSearchChange={setSearchQuery}
+      />
+
+      <div>
         <CalendarGrid
           appointments={filteredAppointments}
-          onSelect={setSelectedId}
+          range={range}
+          onSelect={(appointmentId) => {
+            setSelectedId(appointmentId);
+            setDetailDialogOpen(true);
+          }}
           selectedId={selectedAppointment?.id ?? null}
         />
-        <Surface className="p-5">
-          <SectionHeader title="Appointment details" description="Select a block to inspect the visit." />
-          {selectedAppointment ? (
-            <AppointmentCard appointment={selectedAppointment} compact />
-          ) : (
-            <EmptyState
-              title="No appointment selected"
-              description="Adjust filters or pick a slot from the grid to see its full details here."
-            />
-          )}
-        </Surface>
       </div>
+
+      <FormDialog
+        open={detailDialogOpen && Boolean(selectedAppointment)}
+        title="Appointment details"
+        description="Visit snapshot from the clinic calendar."
+        onClose={() => setDetailDialogOpen(false)}
+        widthClassName="max-w-xl"
+      >
+        {selectedAppointment ? (
+          <AppointmentCard appointment={selectedAppointment} compact />
+        ) : (
+          <EmptyState
+            title="No appointment selected"
+            description="Pick a slot from the calendar to inspect visit details."
+          />
+        )}
+      </FormDialog>
     </div>
     </DataState>
   );
@@ -3091,7 +3298,7 @@ export function RedesignedDoctorManagement() {
     }
   };
 
-  const handleUpdateDoctor = async (body: { firstName: string; lastName: string; bio: string; isActive: boolean; specializationIds: string[] }) => {
+  const handleUpdateDoctor = async (body: { firstName: string; lastName: string; bio: string; isActive: boolean; experienceYears: number | null; specializationIds: string[] }) => {
     if (!editingDoctor) return;
     setSaving(true);
     setActionError(null);
@@ -3101,6 +3308,7 @@ export function RedesignedDoctorManagement() {
         lastName: body.lastName,
         bio: body.bio || null,
         photoUrl: editingDoctor.photoUrl ?? null,
+        experienceYears: body.experienceYears,
         isActive: body.isActive,
       });
 

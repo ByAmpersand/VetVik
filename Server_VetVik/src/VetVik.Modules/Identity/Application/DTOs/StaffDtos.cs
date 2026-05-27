@@ -21,6 +21,7 @@ public sealed record CreateDoctorStaffRequest(
     string FirstName,
     string LastName,
     string? Bio,
+    int? ExperienceYears,
     IReadOnlyList<Guid>? SpecializationIds);
 
 public sealed record ClientDirectoryResponse(

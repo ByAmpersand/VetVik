@@ -19,6 +19,7 @@ public static class ModuleRegistration
         services.AddScoped<IStaffService, StaffService>();
         services.AddScoped<IClientDirectoryService, ClientDirectoryService>();
         services.AddScoped<IAnalyticsService, AnalyticsService>();
+        services.AddScoped<INotificationService, NotificationService>();
 
         // Clinic
         services.AddScoped<IClinicService, ClinicService>();

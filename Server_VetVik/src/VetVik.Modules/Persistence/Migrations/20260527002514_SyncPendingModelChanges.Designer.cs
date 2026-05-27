@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using VetVik.Modules.Persistence;
 
@@ -11,9 +12,11 @@ using VetVik.Modules.Persistence;
 namespace VetVik.Modules.Persistence.Migrations
 {
     [DbContext(typeof(VetVikDbContext))]
-    partial class VetVikDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260527002514_SyncPendingModelChanges")]
+    partial class SyncPendingModelChanges
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -586,54 +589,6 @@ namespace VetVik.Modules.Persistence.Migrations
                     b.ToTable("OwnerProfiles", (string)null);
                 });
 
-            modelBuilder.Entity("VetVik.Modules.Identity.Domain.Entities.UserInboxNotification", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Category")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<bool>("IsRead")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("LinkPath")
-                        .HasMaxLength(300)
-                        .HasColumnType("nvarchar(300)");
-
-                    b.Property<string>("Message")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
-
-                    b.Property<Guid?>("RelatedEntityId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasMaxLength(450)
-                        .HasColumnType("nvarchar(450)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId", "CreatedAt");
-
-                    b.HasIndex("UserId", "IsRead", "CreatedAt");
-
-                    b.ToTable("UserInboxNotifications", (string)null);
-                });
-
             modelBuilder.Entity("VetVik.Modules.Identity.Domain.Entities.UserNotificationPreferences", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1082,17 +1037,6 @@ namespace VetVik.Modules.Persistence.Migrations
                     b.HasOne("VetVik.Modules.Identity.Domain.Entities.ApplicationUser", "User")
                         .WithOne()
                         .HasForeignKey("VetVik.Modules.Identity.Domain.Entities.OwnerProfile", "UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("User");
-                });
-
-            modelBuilder.Entity("VetVik.Modules.Identity.Domain.Entities.UserInboxNotification", b =>
-                {
-                    b.HasOne("VetVik.Modules.Identity.Domain.Entities.ApplicationUser", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 

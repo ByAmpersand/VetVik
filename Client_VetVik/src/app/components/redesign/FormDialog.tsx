@@ -146,6 +146,7 @@ export function FormTextArea({
   placeholder,
   rows = 4,
   error,
+  disabled = false,
 }: Readonly<{
   label: string;
   value: string;
@@ -153,6 +154,7 @@ export function FormTextArea({
   placeholder?: string;
   rows?: number;
   error?: string;
+  disabled?: boolean;
 }>) {
   return (
     <label className="block">
@@ -162,9 +164,11 @@ export function FormTextArea({
         onChange={(event) => onChange(event.target.value)}
         rows={rows}
         placeholder={placeholder}
+        disabled={disabled}
         className={cn(
           'w-full resize-none rounded-2xl border bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:ring-4 focus:ring-teal-500/10',
           error ? 'border-rose-400/70 focus:border-rose-400' : 'border-slate-700 focus:border-teal-400/60',
+          disabled && 'cursor-not-allowed opacity-60',
         )}
       />
       {error ? <p className="mt-1.5 text-xs font-bold text-rose-400">{error}</p> : null}

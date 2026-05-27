@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using VetVik.BuildingBlocks.Application.Exceptions;
 using VetVik.BuildingBlocks.Time;
 using VetVik.Modules.Appointments.Domain.Enums;
+using VetVik.Modules.Identity.Application.Services;
 using VetVik.Modules.MedicalRecords.Application.DTOs;
 using VetVik.Modules.MedicalRecords.Domain.Entities;
 using VetVik.Modules.Persistence;
@@ -12,8 +13,14 @@ internal sealed class MedicalRecordService : IMedicalRecordService
 {
     private readonly VetVikDbContext _db;
     private readonly IClock _clock;
+    private readonly INotificationService _notifications;
 
-    public MedicalRecordService(VetVikDbContext db, IClock clock) { _db = db; _clock = clock; }
+    public MedicalRecordService(VetVikDbContext db, IClock clock, INotificationService notifications)
+    {
+        _db = db;
+        _clock = clock;
+        _notifications = notifications;
+    }
 
     public async Task<MedicalRecordResponse> GetAsync(Guid id, CancellationToken ct)
     {
@@ -57,6 +64,7 @@ internal sealed class MedicalRecordService : IMedicalRecordService
         };
         _db.MedicalRecords.Add(record);
         await _db.SaveChangesAsync(ct);
+        await _notifications.NotifyMedicalRecordCreatedAsync(appt.Id, ct);
         return await GetAsync(record.Id, ct);
     }
 

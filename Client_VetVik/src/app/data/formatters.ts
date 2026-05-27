@@ -15,7 +15,7 @@ export function formatDate(iso: string | null | undefined): string {
 
 export function formatTime(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return d.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 export function calcAge(birthDate: string | null | undefined): number {

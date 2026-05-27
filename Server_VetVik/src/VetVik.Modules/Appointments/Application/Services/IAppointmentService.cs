@@ -21,7 +21,7 @@ public interface IAppointmentService
 
     Task<AppointmentResponse> CreateAsync(CreateAppointmentRequest request, string? actingUserId, bool actingIsOwner, CancellationToken ct);
     Task<AppointmentResponse> UpdateAsync(Guid id, UpdateAppointmentRequest request, CancellationToken ct);
-    Task<AppointmentResponse> CancelAsync(Guid id, CancelAppointmentRequest request, CancellationToken ct);
+    Task<AppointmentResponse> CancelAsync(Guid id, CancelAppointmentRequest request, string? actingUserId, CancellationToken ct);
     Task<AppointmentResponse> ConfirmAsync(Guid id, CancellationToken ct);
     Task<AppointmentResponse> RejectAsync(Guid id, string? reason, CancellationToken ct);
     Task<AppointmentResponse> CompleteAsync(Guid id, CancellationToken ct);

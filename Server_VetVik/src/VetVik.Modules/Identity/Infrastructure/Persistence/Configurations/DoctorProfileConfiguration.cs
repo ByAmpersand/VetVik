@@ -16,6 +16,7 @@ public class DoctorProfileConfiguration : IEntityTypeConfiguration<DoctorProfile
         b.Property(x => x.LastName).IsRequired().HasMaxLength(100);
         b.Property(x => x.Bio).HasMaxLength(1000);
         b.Property(x => x.PhotoUrl);
+        b.Property(x => x.ExperienceYears);
 
         b.HasOne(x => x.User)
          .WithOne()

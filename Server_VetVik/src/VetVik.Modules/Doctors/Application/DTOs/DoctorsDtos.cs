@@ -8,6 +8,7 @@ public sealed record DoctorResponse(
     string LastName,
     string? Bio,
     string? PhotoUrl,
+    int? ExperienceYears,
     bool IsActive,
     IReadOnlyList<SpecializationResponse> Specializations);
 
@@ -18,6 +19,7 @@ public sealed record CreateDoctorRequest(
     string LastName,
     string? Bio,
     string? PhotoUrl,
+    int? ExperienceYears,
     bool IsActive,
     IReadOnlyList<Guid>? SpecializationIds);
 
@@ -26,6 +28,7 @@ public sealed record UpdateDoctorRequest(
     string LastName,
     string? Bio,
     string? PhotoUrl,
+    int? ExperienceYears,
     bool IsActive);
 
 public sealed record SpecializationResponse(Guid Id, string Name, string? Description, bool IsActive);

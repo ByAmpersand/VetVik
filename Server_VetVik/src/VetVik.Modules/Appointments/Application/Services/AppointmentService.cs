@@ -5,6 +5,7 @@ using VetVik.Modules.Appointments.Application.DTOs;
 using VetVik.Modules.Appointments.Application.Rules;
 using VetVik.Modules.Appointments.Domain.Entities;
 using VetVik.Modules.Appointments.Domain.Enums;
+using VetVik.Modules.Identity.Application.Services;
 using VetVik.Modules.Persistence;
 
 namespace VetVik.Modules.Appointments.Application.Services;
@@ -13,6 +14,7 @@ internal sealed class AppointmentService : IAppointmentService
 {
     private readonly VetVikDbContext _db;
     private readonly IClock _clock;
+    private readonly INotificationService _notifications;
     private static readonly AppointmentStatus[] BlockingStatuses =
     {
         AppointmentStatus.Scheduled,
@@ -20,7 +22,12 @@ internal sealed class AppointmentService : IAppointmentService
         AppointmentStatus.Completed
     };
 
-    public AppointmentService(VetVikDbContext db, IClock clock) { _db = db; _clock = clock; }
+    public AppointmentService(VetVikDbContext db, IClock clock, INotificationService notifications)
+    {
+        _db = db;
+        _clock = clock;
+        _notifications = notifications;
+    }
 
     public async Task<AppointmentResponse> GetAsync(Guid id, CancellationToken ct)
     {
@@ -213,6 +220,8 @@ internal sealed class AppointmentService : IAppointmentService
         };
         _db.Appointments.Add(entity);
         await _db.SaveChangesAsync(ct);
+        await _notifications.NotifyAppointmentEventAsync(
+            entity.Id, AppointmentNotificationKind.Created, actingUserId, ct);
         return await GetAsync(entity.Id, ct);
     }
 
@@ -257,7 +266,7 @@ internal sealed class AppointmentService : IAppointmentService
         return await GetAsync(entity.Id, ct);
     }
 
-    public async Task<AppointmentResponse> CancelAsync(Guid id, CancelAppointmentRequest r, CancellationToken ct)
+    public async Task<AppointmentResponse> CancelAsync(Guid id, CancelAppointmentRequest r, string? actingUserId, CancellationToken ct)
     {
         var entity = await _db.Appointments.FirstOrDefaultAsync(a => a.Id == id, ct)
             ?? throw new NotFoundException("Appointment", id);
@@ -273,6 +282,8 @@ internal sealed class AppointmentService : IAppointmentService
         entity.CancellationReason = r.Reason;
         entity.UpdatedAt = _clock.UtcNow;
         await _db.SaveChangesAsync(ct);
+        await _notifications.NotifyAppointmentEventAsync(
+            entity.Id, AppointmentNotificationKind.Cancelled, actingUserId, ct);
         return await GetAsync(entity.Id, ct);
     }
 
@@ -290,6 +301,8 @@ internal sealed class AppointmentService : IAppointmentService
         entity.Status = AppointmentStatus.Confirmed;
         entity.UpdatedAt = _clock.UtcNow;
         await _db.SaveChangesAsync(ct);
+        await _notifications.NotifyAppointmentEventAsync(
+            entity.Id, AppointmentNotificationKind.Confirmed, actorUserId: null, ct);
         return await GetAsync(entity.Id, ct);
     }
 
@@ -309,6 +322,8 @@ internal sealed class AppointmentService : IAppointmentService
         entity.CancellationReason = string.IsNullOrWhiteSpace(reason) ? "Rejected by doctor" : reason;
         entity.UpdatedAt = _clock.UtcNow;
         await _db.SaveChangesAsync(ct);
+        await _notifications.NotifyAppointmentEventAsync(
+            entity.Id, AppointmentNotificationKind.Rejected, actorUserId: null, ct);
         return await GetAsync(entity.Id, ct);
     }
 
@@ -323,6 +338,8 @@ internal sealed class AppointmentService : IAppointmentService
         entity.Status = AppointmentStatus.Completed;
         entity.UpdatedAt = _clock.UtcNow;
         await _db.SaveChangesAsync(ct);
+        await _notifications.NotifyAppointmentEventAsync(
+            entity.Id, AppointmentNotificationKind.Completed, actorUserId: null, ct);
         return await GetAsync(entity.Id, ct);
     }
 

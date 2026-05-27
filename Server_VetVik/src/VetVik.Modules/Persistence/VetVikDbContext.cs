@@ -21,6 +21,7 @@ public class VetVikDbContext : IdentityDbContext<ApplicationUser, IdentityRole, 
     public DbSet<DoctorProfile> DoctorProfiles => Set<DoctorProfile>();
     public DbSet<AdminProfile> AdminProfiles => Set<AdminProfile>();
     public DbSet<UserNotificationPreferences> UserNotificationPreferences => Set<UserNotificationPreferences>();
+    public DbSet<UserInboxNotification> UserInboxNotifications => Set<UserInboxNotification>();
 
     // Clinic
     public DbSet<ClinicSettings> ClinicSettings => Set<ClinicSettings>();

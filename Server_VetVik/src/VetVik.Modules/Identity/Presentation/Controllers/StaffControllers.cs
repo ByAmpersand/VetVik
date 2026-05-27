@@ -51,7 +51,7 @@ public sealed class StaffController : ControllerBase
 
 [ApiController]
 [Route("api/clients")]
-[Authorize(Roles = Roles.ClinicAdmin)]
+[Authorize(Roles = $"{Roles.ClinicAdmin},{Roles.Doctor}")]
 public sealed class ClientsController : ControllerBase
 {
     private readonly IClientDirectoryService _service;
