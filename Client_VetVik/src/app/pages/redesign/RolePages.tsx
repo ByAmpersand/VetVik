@@ -668,8 +668,9 @@ function AppointmentFormDialog({
         from: fromLocal.toISOString(),
         to: toLocal.toISOString(),
         doctorId: bookingMode === 'specific-doctor' ? (resolvedDoctorId || draft.doctorId) : null,
+        roomId: draft.roomId || null,
         stepMinutes: SLOT_INTERVAL_MINUTES,
-        maxSlots: 60,
+        maxSlots: 120,
       })
       .then((apiSlots) => {
         if (isCancelled) return;
@@ -705,7 +706,7 @@ function AppointmentFormDialog({
     return () => {
       isCancelled = true;
     };
-  }, [draft.doctorId, draft.serviceId, open, bookingMode, preferredDate, resolvedDoctorId, timeWindow]);
+  }, [draft.doctorId, draft.roomId, draft.serviceId, open, bookingMode, preferredDate, resolvedDoctorId, timeWindow]);
 
   const selectedSlotValue = useMemo(() => {
     const doctorId = resolvedDoctorId || draft.doctorId;
@@ -942,7 +943,7 @@ function AppointmentFormDialog({
             <FormSelect
               label="Room (optional)"
               value={draft.roomId}
-              onChange={(value) => setDraft((prev) => ({ ...prev, roomId: value }))}
+              onChange={(value) => setDraft((prev) => ({ ...prev, roomId: value, startAt: '' }))}
               options={[
                 { value: '', label: 'Auto-assign free room' },
                 ...rooms.map((room) => ({ value: room.id, label: room.name })),

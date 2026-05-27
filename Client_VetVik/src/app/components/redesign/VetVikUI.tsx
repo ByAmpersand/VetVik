@@ -497,12 +497,14 @@ export function DoctorCard({
     <Surface interactive className="flex h-full flex-col p-5">
       <div className="flex-1">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
+          <div className="flex min-w-0 items-start gap-3">
             <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-sky-500 to-teal-500 text-sm font-black text-white shadow-lg shadow-sky-500/20">
               {doctor.avatarUrl ? <img src={doctor.avatarUrl} alt="" className="h-full w-full object-cover" /> : doctor.avatar}
             </div>
             <div className="min-w-0">
-              <h3 className="break-words font-black tracking-[-0.02em] text-white">{doctor.name}</h3>
+              <h3 className="line-clamp-2 min-h-[2.75rem] break-words text-base font-black leading-snug tracking-[-0.02em] text-white">
+                {doctor.name}
+              </h3>
               <p className="line-clamp-2 min-h-[2.5rem] break-words text-sm leading-5 text-slate-400">{doctor.specialization}</p>
             </div>
           </div>
@@ -513,15 +515,15 @@ export function DoctorCard({
         <div className="mt-5 grid grid-cols-3 gap-2">
           <div className="rounded-2xl border border-slate-700/60 bg-slate-800/60 p-3">
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Today</p>
-            <p className="mt-1 text-xl font-black text-white">{doctor.todayAppointments}</p>
+            <p className="mt-1 min-h-[1.75rem] text-xl font-black text-white">{doctor.todayAppointments}</p>
           </div>
           <div className="rounded-2xl border border-sky-400/25 bg-sky-500/10 p-3">
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-sky-300">Visits</p>
-            <p className="mt-1 text-xl font-black text-sky-100">{doctor.totalAppointments ?? 0}</p>
+            <p className="mt-1 min-h-[1.75rem] text-xl font-black text-sky-100">{doctor.totalAppointments ?? 0}</p>
           </div>
           <div className="rounded-2xl border border-teal-400/25 bg-teal-500/10 p-3">
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-teal-200">Experience</p>
-            <p className="mt-1 text-base font-black leading-tight text-teal-100">{doctor.experience}</p>
+            <p className="mt-1 min-h-[1.75rem] line-clamp-2 text-base font-black leading-tight text-teal-100">{doctor.experience}</p>
           </div>
         </div>
         <div className="mt-4 break-all text-sm text-slate-400">

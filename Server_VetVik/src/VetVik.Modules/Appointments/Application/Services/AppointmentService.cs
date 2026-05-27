@@ -92,11 +92,16 @@ internal sealed class AppointmentService : IAppointmentService
             ?? throw new NotFoundException("Service", r.ServiceId);
 
         var clinicHours = await _db.ClinicWorkingHours.AsNoTracking().ToListAsync(ct);
-        var rooms = await _db.Rooms.AsNoTracking()
-            .Where(room => room.IsActive)
+        var roomQuery = _db.Rooms.AsNoTracking().Where(room => room.IsActive);
+        if (r.RoomId.HasValue)
+            roomQuery = roomQuery.Where(room => room.Id == r.RoomId.Value);
+
+        var rooms = await roomQuery
             .OrderBy(room => room.Name)
             .Select(room => new RoomOption(room.Id, room.Name))
             .ToListAsync(ct);
+        if (r.RoomId.HasValue && rooms.Count == 0)
+            throw new NotFoundException("Room", r.RoomId.Value);
         if (rooms.Count == 0)
             return Array.Empty<AvailableAppointmentSlotResponse>();
 
@@ -161,24 +166,29 @@ internal sealed class AppointmentService : IAppointmentService
                 if (hasDoctorConflict)
                     continue;
 
-                var room = rooms.FirstOrDefault(room =>
-                    !appointments.Any(a =>
+                foreach (var room in rooms)
+                {
+                    var hasRoomConflict = appointments.Any(a =>
                         a.RoomId == room.Id
-                        && AppointmentRules.Overlaps(startAt, endAt, a.StartAt, a.EndAt)));
+                        && AppointmentRules.Overlaps(startAt, endAt, a.StartAt, a.EndAt));
+                    if (hasRoomConflict)
+                        continue;
 
-                if (room is null)
-                    continue;
+                    slots.Add(new AvailableAppointmentSlotResponse(
+                        startAt,
+                        endAt,
+                        doctor.Id,
+                        doctor.FullName,
+                        room.Id,
+                        room.Name,
+                        autoAssignedDoctor));
 
-                slots.Add(new AvailableAppointmentSlotResponse(
-                    startAt,
-                    endAt,
-                    doctor.Id,
-                    doctor.FullName,
-                    room.Id,
-                    room.Name,
-                    autoAssignedDoctor));
+                    if (slots.Count >= r.MaxSlots)
+                        break;
+                }
 
-                break;
+                if (slots.Count >= r.MaxSlots)
+                    break;
             }
 
             if (slots.Count >= r.MaxSlots)

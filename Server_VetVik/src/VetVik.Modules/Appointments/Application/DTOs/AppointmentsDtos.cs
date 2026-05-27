@@ -49,6 +49,7 @@ public sealed record FindAvailableAppointmentSlotsRequest(
     DateTime From,
     DateTime To,
     Guid? DoctorId,
+    Guid? RoomId = null,
     int StepMinutes = 30,
     int MaxSlots = 30);
 

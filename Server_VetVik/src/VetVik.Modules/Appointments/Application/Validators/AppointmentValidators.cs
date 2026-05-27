@@ -50,5 +50,6 @@ public sealed class FindAvailableAppointmentSlotsRequestValidator : AbstractVali
         RuleFor(x => x.StepMinutes).InclusiveBetween(5, 120);
         RuleFor(x => x.MaxSlots).InclusiveBetween(1, 200);
         RuleFor(x => x.DoctorId).NotEqual(Guid.Empty).When(x => x.DoctorId.HasValue);
+        RuleFor(x => x.RoomId).NotEqual(Guid.Empty).When(x => x.RoomId.HasValue);
     }
 }

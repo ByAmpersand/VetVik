@@ -326,6 +326,7 @@ export interface FindAvailableAppointmentSlotsRequest {
   from: string;
   to: string;
   doctorId?: string | null;
+  roomId?: string | null;
   stepMinutes?: number;
   maxSlots?: number;
 }
